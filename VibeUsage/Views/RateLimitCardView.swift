@@ -101,7 +101,12 @@ private struct ProviderCard: View {
         switch snapshot.status {
         case .ok:           quotaRows
         case .disabled:     disabledContent
-        case .unauthorized: messageContent(text: "未授权或登录已过期", action: "重试")
+        case .unauthorized:
+            if snapshot.provider == .claudeCode && appState.claudeRateLimitHasSucceeded {
+                reauthContent
+            } else {
+                messageContent(text: "未授权或登录已过期", action: "重试")
+            }
         case .error(let m): messageContent(text: m, action: "重试")
         case .noData:       EmptyView()
         }
@@ -199,6 +204,42 @@ private struct ProviderCard: View {
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// Shown when Claude was previously authorized but the keychain ACL has been
+    /// invalidated. The two known causes are (1) Vibe Usage being re-signed
+    /// (rebuild / Sparkle update — changes our cdhash) and (2) Claude Code
+    /// rotating its credentials or re-logging in (rewrites the keychain item
+    /// and drops third-party ACL entries). The smaller subline names both so
+    /// the user understands why "始终允许" didn't actually stick.
+    private var reauthContent: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text("Keychain 授权失效")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(white: 0.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Button {
+                    Task { await appState.refreshAllRateLimits() }
+                } label: {
+                    Text("重新授权")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(white: 0.78))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(Color(white: 0.16))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            Text("可能因 App 更新或 Claude 重登")
+                .font(.system(size: 10))
+                .foregroundStyle(Color(white: 0.38))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

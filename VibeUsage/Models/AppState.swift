@@ -91,6 +91,15 @@ final class AppState {
         didSet { UserDefaults.standard.set(claudeRateLimitEnabled, forKey: "claudeRateLimitEnabled") }
     }
 
+    /// Set on the first successful Claude fetch and persisted forever after.
+    /// The UI uses it to swap the unauthorized copy: a fresh user sees a generic
+    /// "未授权" message, but a returning user (whose ACL was invalidated by an
+    /// app update or Claude Code login refresh) sees an explanation of why the
+    /// keychain is asking again.
+    var claudeRateLimitHasSucceeded: Bool = false {
+        didSet { UserDefaults.standard.set(claudeRateLimitHasSucceeded, forKey: "claudeRateLimitHasSucceeded") }
+    }
+
     // MARK: - Menu Bar Display Prefs
     var showCostInMenuBar: Bool = true {
         didSet { UserDefaults.standard.set(showCostInMenuBar, forKey: "showCostInMenuBar") }
@@ -119,6 +128,7 @@ final class AppState {
         self.showCostInMenuBar = UserDefaults.standard.object(forKey: "showCostInMenuBar") as? Bool ?? true
         self.showTokensInMenuBar = UserDefaults.standard.object(forKey: "showTokensInMenuBar") as? Bool ?? false
         self.claudeRateLimitEnabled = UserDefaults.standard.bool(forKey: "claudeRateLimitEnabled")
+        self.claudeRateLimitHasSucceeded = UserDefaults.standard.bool(forKey: "claudeRateLimitHasSucceeded")
 
         let loadedConfig = ConfigManager.load()
         self.config = loadedConfig
@@ -208,10 +218,17 @@ final class AppState {
         await fetchUsageData()
     }
 
-    /// Refresh only Codex rate limits. Safe — no keychain prompts.
-    /// Used by popover-open and the periodic background timer.
+    /// Refresh Codex rate limits unconditionally. Safe — no keychain prompts.
+    /// Used by the manual "更新数据" / retry paths.
     func refreshCodexRateLimit() async {
         await rateLimitCoordinator?.refreshCodex()
+    }
+
+    /// Refresh Codex rate limits only if the last fetch was over a minute ago.
+    /// Used by popover-open so toggling the menu bar doesn't re-walk the
+    /// Codex session tree on every click.
+    func refreshCodexRateLimitIfNeeded() async {
+        await rateLimitCoordinator?.refreshCodexIfNeeded()
     }
 
     /// Refresh both Codex and Claude. Touches keychain — only call from
@@ -234,7 +251,8 @@ final class AppState {
     private func startRateLimitCoordinator() {
         let coord = RateLimitCoordinator(appState: self)
         coord.seedPlaceholders()
-        coord.start()
+        // No background loop — Codex refreshes on popover open (debounced),
+        // Claude only on user-initiated actions.
         self.rateLimitCoordinator = coord
     }
 

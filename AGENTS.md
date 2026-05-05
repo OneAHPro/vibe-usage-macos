@@ -98,6 +98,13 @@ VibeUsageApp → AppDelegate → MenuBarController (NSStatusItem + PopoverPanel)
 4. After sync completes, `fetchUsageData()` refreshes the dashboard
 5. Opening the popover calls `fetchUsageDataIfNeeded()` (60s debounce) — fetch only, no upload
 
+### Rate-Limit Refresh
+No background timer. `RateLimitCoordinator` is driven entirely by user-visible events:
+- Popover open → `refreshCodexIfNeeded()` (60s debounce, mirrors `fetchUsageDataIfNeeded`). Codex only — file-read, no prompts.
+- Footer "更新数据" / card retry buttons → `refreshAll()` (forces Codex + Claude).
+- Claude touches `~/.claude/.credentials.json` first, falls back to the macOS Keychain item `Claude Code-credentials`. The keychain read can re-prompt because the "Always Allow" ACL is bound to the requesting app's code-signature; it gets invalidated whenever Vibe Usage is re-signed (Sparkle update / rebuild) or Claude Code rewrites the keychain item (token rotation, re-login).
+- `claudeRateLimitHasSucceeded` (persisted) is set on the first successful Claude fetch; the rate-limit card uses it to swap the unauthorized copy ("未授权或登录已过期" first time vs. "Keychain 授权失效" re-auth flow).
+
 ### Settings Window
 Settings uses a raw `NSWindow` via `SettingsWindowController` because SwiftUI `Settings` scenes don't work in LSUIElement apps. Opening Settings promotes `NSApp.activationPolicy` to `.regular` (dock icon + click-to-front behavior); `ActivationCoordinator` reverts to `.accessory` / `.prohibited` on close depending on whether the menu-bar popup is still open.
 

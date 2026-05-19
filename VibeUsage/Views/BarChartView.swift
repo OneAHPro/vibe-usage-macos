@@ -1,17 +1,60 @@
 import SwiftUI
+import AppKit
+
+/// Tracks whether the user is mid-scroll anywhere in the app.
+///
+/// SwiftUI's `.onHover`/`.onContinuousHover` keep firing while a `ScrollView`
+/// scrolls, because the content slides under the (stationary) cursor. Every
+/// fire mutates hover state and re-renders the chart, which competes with the
+/// scroll animation on the main thread and makes the popover scroll stutter /
+/// feel stuck whenever the pointer is over the 趋势 chart. We watch raw
+/// `.scrollWheel` events and expose an `isScrolling` flag (debounced so trackpad
+/// momentum doesn't flicker it) the chart uses to suspend hover during a scroll.
+@MainActor
+@Observable
+private final class ScrollWatcher {
+    private(set) var isScrolling = false
+    private var monitor: Any?
+    private var resetTask: Task<Void, Never>?
+
+    func start() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            Task { @MainActor in self?.bump() }
+            return event // never consume — the ScrollView still needs it
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        resetTask?.cancel()
+        resetTask = nil
+        isScrolling = false
+    }
+
+    private func bump() {
+        if !isScrolling { isScrolling = true } // set once per gesture (avoid notify storm)
+        resetTask?.cancel()
+        resetTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            if Task.isCancelled { return }
+            self?.isScrolling = false
+        }
+    }
+}
+
+private struct BarData: Identifiable {
+    let id: String // dayKey or hourKey
+    var input: Int = 0
+    var output: Int = 0
+    var total: Int { input + output }
+    var cost: Double = 0
+    var activeMinutes: Double = 0
+}
 
 struct BarChartView: View {
     @Environment(AppState.self) private var appState
-    @State private var hoveredBar: String?
-
-    private struct BarData: Identifiable {
-        let id: String // dayKey or hourKey
-        var input: Int = 0
-        var output: Int = 0
-        var total: Int { input + output }
-        var cost: Double = 0
-        var activeMinutes: Double = 0
-    }
 
     private var isHourly: Bool {
         appState.timeRange == .oneDay
@@ -140,12 +183,53 @@ struct BarChartView: View {
             }
             .padding(.bottom, 14)
 
+            // The bars/tooltip/x-axis live in a child view that owns the hover
+            // state. The expensive `chartData` aggregation is computed here in
+            // the parent and passed down, so a hover change only re-renders the
+            // lightweight child — it never re-runs the O(n) aggregation. This,
+            // plus the single hover region inside ChartContent, keeps the
+            // popover ScrollView smooth when the cursor passes over the chart.
+            ChartContent(
+                data: chartData,
+                chartMode: state.chartMode,
+                isHourly: isHourly,
+                maxTotal: maxTotal,
+                maxCost: maxCost,
+                maxActiveMinutes: maxActiveMinutes,
+                labelInterval: labelInterval
+            )
+        }
+        .padding(14)
+        .background(Color(white: 0.09))
+        .cornerRadius(4)
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(Color(white: 0.16), lineWidth: 1)
+        )
+    }
+
+}
+
+private struct ChartContent: View {
+    let data: [BarData]
+    let chartMode: ChartMode
+    let isHourly: Bool
+    let maxTotal: Int
+    let maxCost: Double
+    let maxActiveMinutes: Double
+    let labelInterval: Int
+
+    @State private var hoveredIndex: Int?
+    @State private var scroll = ScrollWatcher()
+
+    var body: some View {
+        VStack(spacing: 0) {
             // Chart
             HStack(alignment: .bottom, spacing: 6) {
                 // Y-axis
                 VStack(alignment: .trailing) {
                     Group {
-                        switch state.chartMode {
+                        switch chartMode {
                         case .token:
                             Text(Formatters.formatNumber(maxTotal))
                         case .cost:
@@ -169,9 +253,9 @@ struct BarChartView: View {
 
                 // Bars
                 HStack(alignment: .bottom, spacing: 2) {
-                    ForEach(chartData) { bar in
+                    ForEach(data) { bar in
                         VStack(spacing: 0) {
-                            switch state.chartMode {
+                            switch chartMode {
                             case .token:
                                 let inputH = CGFloat(bar.input) / CGFloat(maxTotal) * 150
                                 let outputH = CGFloat(bar.output) / CGFloat(maxTotal) * 150
@@ -200,54 +284,43 @@ struct BarChartView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 150, alignment: .bottom)
-                        .onHover { hovering in
-                            hoveredBar = hovering ? bar.id : nil
-                        }
                     }
                 }
                 .overlay {
                     GeometryReader { geo in
-                        if let hoveredId = hoveredBar,
-                           let bar = chartData.first(where: { $0.id == hoveredId }),
-                           let idx = chartData.firstIndex(where: { $0.id == hoveredId }) {
-                            let barW = geo.size.width / CGFloat(chartData.count)
+                        // ONE hover tracking area for the whole bar strip
+                        // (replaces the former per-bar .onHover — 24–90
+                        // NSTrackingAreas). While the popover is being
+                        // scrolled we drop hit-testing entirely so the wheel
+                        // events flow straight to the ScrollView and no hover
+                        // fires; that, plus the .active guard below, keeps the
+                        // chart subtree static during a scroll so it no longer
+                        // stutters / sticks.
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .allowsHitTesting(!scroll.isScrolling)
+                            .onContinuousHover(coordinateSpace: .local) { phase in
+                                switch phase {
+                                case .active(let p):
+                                    guard !scroll.isScrolling,
+                                          !data.isEmpty, geo.size.width > 0 else { return }
+                                    let barW = geo.size.width / CGFloat(data.count)
+                                    let idx = min(max(Int(p.x / barW), 0), data.count - 1)
+                                    if hoveredIndex != idx { hoveredIndex = idx }
+                                case .ended:
+                                    if hoveredIndex != nil { hoveredIndex = nil }
+                                }
+                            }
+
+                        if let idx = hoveredIndex, data.indices.contains(idx) {
+                            let bar = data[idx]
+                            let barW = geo.size.width / CGFloat(data.count)
                             let cx = barW * (CGFloat(idx) + 0.5)
                             let clampedX = min(max(cx, 80), geo.size.width - 80)
 
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(isHourly ? Formatters.formatHourShort(bar.id) : Formatters.formatDateShort(bar.id))
-                                    .foregroundStyle(.white)
-                                    .fontWeight(.medium)
-                                
-                                switch state.chartMode {
-                                case .token:
-                                    Text("总 Token: \(Formatters.formatNumber(bar.total))")
-                                        .foregroundStyle(Color(white: 0.8))
-                                    HStack(spacing: 8) {
-                                        Text("输入: \(Formatters.formatNumber(bar.input))")
-                                            .foregroundStyle(Color(white: 0.5))
-                                        Text("输出: \(Formatters.formatNumber(bar.output))")
-                                            .foregroundStyle(Color(white: 0.5))
-                                    }
-                                    Text("费用: \(Formatters.formatCost(bar.cost))")
-                                        .foregroundStyle(Color(red: 0.2, green: 0.8, blue: 0.5))
-                                case .cost:
-                                    Text("费用: \(Formatters.formatCost(bar.cost))")
-                                        .foregroundStyle(Color(red: 0.2, green: 0.8, blue: 0.5))
-                                case .activeTime:
-                                    Text("活跃时长: \(Formatters.formatDuration(Int(bar.activeMinutes * 60)))")
-                                        .foregroundStyle(Color(red: 0.38, green: 0.6, blue: 1.0))
-                                }
-                            }
-                            .font(.system(size: 11))
-                            .padding(8)
-                            .background(Color.black)
-                            .cornerRadius(4)
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.2), lineWidth: 0.5))
-                            .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
-                            .fixedSize()
-                            .position(x: clampedX, y: 40)
-                            .allowsHitTesting(false)
+                            tooltip(for: bar)
+                                .position(x: clampedX, y: 40)
+                                .allowsHitTesting(false)
                         }
                     }
                 }
@@ -261,7 +334,7 @@ struct BarChartView: View {
                 Rectangle()
                     .fill(.clear)
                     .frame(width: 6)
-                ForEach(Array(chartData.enumerated()), id: \.element.id) { index, bar in
+                ForEach(Array(data.enumerated()), id: \.element.id) { index, bar in
                     Group {
                         if index % labelInterval == 0 {
                             Text(isHourly ? Formatters.formatHourShort(bar.id) : Formatters.formatDateShort(bar.id))
@@ -278,13 +351,48 @@ struct BarChartView: View {
             }
             .padding(.top, 8)
         }
-        .padding(14)
-        .background(Color(white: 0.09))
-        .cornerRadius(4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(Color(white: 0.16), lineWidth: 1)
-        )
+        .onAppear { scroll.start() }
+        .onDisappear { scroll.stop() }
+        .onChange(of: scroll.isScrolling) { _, scrolling in
+            // Hide the tooltip as soon as a scroll starts so it doesn't hang
+            // frozen over the moving content until the gesture ends.
+            if scrolling, hoveredIndex != nil { hoveredIndex = nil }
+        }
     }
 
+    @ViewBuilder
+    private func tooltip(for bar: BarData) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(isHourly ? Formatters.formatHourShort(bar.id) : Formatters.formatDateShort(bar.id))
+                .foregroundStyle(.white)
+                .fontWeight(.medium)
+
+            switch chartMode {
+            case .token:
+                Text("总 Token: \(Formatters.formatNumber(bar.total))")
+                    .foregroundStyle(Color(white: 0.8))
+                HStack(spacing: 8) {
+                    Text("输入: \(Formatters.formatNumber(bar.input))")
+                        .foregroundStyle(Color(white: 0.5))
+                    Text("输出: \(Formatters.formatNumber(bar.output))")
+                        .foregroundStyle(Color(white: 0.5))
+                }
+                Text("费用: \(Formatters.formatCost(bar.cost))")
+                    .foregroundStyle(Color(red: 0.2, green: 0.8, blue: 0.5))
+            case .cost:
+                Text("费用: \(Formatters.formatCost(bar.cost))")
+                    .foregroundStyle(Color(red: 0.2, green: 0.8, blue: 0.5))
+            case .activeTime:
+                Text("活跃时长: \(Formatters.formatDuration(Int(bar.activeMinutes * 60)))")
+                    .foregroundStyle(Color(red: 0.38, green: 0.6, blue: 1.0))
+            }
+        }
+        .font(.system(size: 11))
+        .padding(8)
+        .background(Color.black)
+        .cornerRadius(4)
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.2), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
+        .fixedSize()
+    }
 }

@@ -91,6 +91,19 @@ VibeUsageApp → AppDelegate → MenuBarController (NSStatusItem + PopoverPanel)
 3. Views compute filtered data locally: `appState.buckets.filter { ... appState.filters ... }`
 4. Charts aggregate filtered buckets by time key or dimension
 
+### Chart Hover & Scroll
+`BarChartView` is split into a parent that computes the O(n) `chartData`
+aggregation and a `ChartContent` child that owns the hover state, so a hover
+change never re-runs the aggregation. The bar strip uses a **single**
+`.onContinuousHover` region mapping cursor X → bar index (not one `.onHover`
+per bar — that was 24–90 `NSTrackingArea`s). A `ScrollWatcher` (`@Observable`,
+local `.scrollWheel` `NSEvent` monitor, 150 ms-debounced, never consumes the
+event) flips `isScrolling` for the duration of a scroll gesture; while it is
+set the hover layer drops hit-testing and the `.active` handler bails, so the
+chart subtree stays static mid-gesture. Without this the popover `ScrollView`
+stutters / sticks whenever the pointer is parked over the 趋势 chart, because
+SwiftUI keeps delivering hover updates as the content slides under the cursor.
+
 ### Sync Pipeline
 1. `SyncScheduler` fires every 30 minutes (background upload + fetch)
 2. `SyncEngine` runs the `@vibe-cafe/vibe-usage` CLI via `CLIBridge`

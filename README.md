@@ -15,9 +15,9 @@ macOS 菜单栏应用，自动追踪 AI 编程工具的 Token 用量和费用。
 
 ## 配置
 
-1. 前往 [vibecafe.ai/usage/setup](https://vibecafe.ai/usage/setup) 生成 API Key
-2. 打开 Vibe Usage，在弹出窗口中粘贴 API Key
-3. 点击「开始使用」— 验证通过后自动开始同步
+1. 打开 Vibe Usage，点击「登录并链接数据」
+2. 浏览器自动打开 vibecafe.ai 审批页面 — 登录后确认验证码与 app 一致
+3. 点击「确认链接」 — app 自动拿到 Key 并开始同步
 
 ## 功能
 

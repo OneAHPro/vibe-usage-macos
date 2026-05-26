@@ -23,9 +23,9 @@ vibe-usage-app/                    # SwiftUI macOS menu bar app (SPM, Swift 6, m
 │   │   ├── BarChartView.swift     # Custom-drawn bar chart (hourly/daily trend)
 │   │   ├── DistributionChartsView.swift  # 4 donut pie charts (terminal, tool, model, project)
 │   │   ├── FilterTagsView.swift   # Filter pills for source/model/project/hostname
-│   │   └── SettingsView.swift     # Settings form (API key, menu bar prefs, auto-start, updates)
+│   │   └── SettingsView.swift     # Settings form (re-link via device flow, menu bar prefs, auto-start, updates)
 │   ├── Services/
-│   │   ├── APIClient.swift        # HTTP client for /api/usage (Bearer auth with vbu_ key)
+│   │   ├── APIClient.swift        # HTTP client for /api/usage (Bearer auth with vbu_ key) + unauthenticated device-flow helpers (requestDeviceCode/pollDeviceCode)
 │   │   ├── SyncEngine.swift       # Orchestrates CLI sync (runs @vibe-cafe/vibe-usage via Node/Bun)
 │   │   ├── SyncScheduler.swift    # 30-minute interval auto-sync timer
 │   │   ├── CLIBridge.swift        # Executes vibe-usage CLI as subprocess
@@ -74,7 +74,7 @@ LSUIElement menu bar app — no dock icon, no main window. `AppDelegate` owns a 
 ```
 VibeUsageApp → AppDelegate → MenuBarController (NSStatusItem + PopoverPanel)
 └── PopoverView (520px wide, hosted in NSHostingView pinned to panel.contentView)
-    ├── unconfiguredView          # First-run API key setup
+    ├── unconfiguredView          # First-run device-flow linking (browser login → poll → save key)
     └── dashboardView
         ├── headerBar             # Title, "查看详情" link, time range (今天/24H/7D/30D), settings gear
         ├── ScrollView

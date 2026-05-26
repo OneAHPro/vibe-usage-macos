@@ -62,3 +62,80 @@ struct APIClient: Sendable {
         }
     }
 }
+
+// MARK: - Device authorization flow (unauthenticated)
+
+struct DeviceCodeResponse: Decodable, Sendable {
+    let deviceCode: String
+    let userCode: String
+    let verificationUri: String
+    let verificationUriComplete: String
+    let expiresIn: Int
+    let interval: Int
+}
+
+struct DevicePollResponse: Decodable, Sendable {
+    let apiKey: String?
+    let apiUrl: String?
+    let error: String?
+}
+
+enum DeviceFlowError: LocalizedError {
+    case denied
+    case expired
+    case network(String)
+    case server(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .denied: "你拒绝了链接请求。"
+        case .expired: "验证码已过期，请重新登录。"
+        case .network(let msg): "网络错误：\(msg)"
+        case .server(let msg): "服务端错误：\(msg)"
+        }
+    }
+}
+
+func requestDeviceCode(baseURL: String, clientName: String, hostname: String?) async throws -> DeviceCodeResponse {
+    guard let url = URL(string: "\(baseURL)/api/usage/device/code") else {
+        throw APIClient.APIError.invalidURL
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.timeoutInterval = 15
+    var body: [String: String] = ["clientName": clientName]
+    if let hostname { body["hostname"] = hostname }
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse else {
+        throw APIClient.APIError.invalidResponse
+    }
+    guard http.statusCode == 200 else {
+        throw APIClient.APIError.httpError(http.statusCode)
+    }
+    return try JSONDecoder().decode(DeviceCodeResponse.self, from: data)
+}
+
+func pollDeviceCode(baseURL: String, deviceCode: String) async throws -> DevicePollResponse {
+    guard let url = URL(string: "\(baseURL)/api/usage/device/poll") else {
+        throw APIClient.APIError.invalidURL
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.timeoutInterval = 15
+    req.httpBody = try JSONSerialization.data(withJSONObject: ["deviceCode": deviceCode])
+
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse else {
+        throw APIClient.APIError.invalidResponse
+    }
+    // 200 covers success + pending/denied/expired (RFC 8628 style).
+    // 410 is "already delivered, never replay".
+    if http.statusCode == 200 || http.statusCode == 410 {
+        return try JSONDecoder().decode(DevicePollResponse.self, from: data)
+    }
+    throw APIClient.APIError.httpError(http.statusCode)
+}

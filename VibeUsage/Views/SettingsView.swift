@@ -8,59 +8,37 @@ struct SettingsView: View {
     @State private var apiKeyDisplay: String = ""
     @State private var autoStartEnabled: Bool = false
     @State private var showingResetConfirmation = false
-    @State private var isEditingApiKey = false
-    @State private var newApiKey = ""
-    @State private var isValidatingKey = false
-    @State private var apiKeyError: String?
+    @State private var isRelinking = false
+    @State private var relinkUserCode: String?
+    @State private var relinkError: String?
 
     var body: some View {
         Form {
             // Sync section
             Section {
                 LabeledContent("API Key") {
-                    if isEditingApiKey {
-                        VStack(alignment: .trailing, spacing: 6) {
-                            TextField("", text: $newApiKey)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.body, design: .monospaced))
-                                .frame(width: 220)
-                            HStack(spacing: 8) {
-                                if let apiKeyError {
-                                    Text(apiKeyError)
-                                        .font(.caption)
-                                        .foregroundStyle(.red)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                Button("取消") {
-                                    isEditingApiKey = false
-                                    newApiKey = ""
-                                    apiKeyError = nil
-                                }
-                                .font(.caption)
-                                Button("保存") {
-                                    Task { await validateAndUpdateKey() }
-                                }
-                                .font(.caption)
-                                .disabled(newApiKey.isEmpty || !newApiKey.hasPrefix("vbu_") || isValidatingKey)
-                            }
-                            if isValidatingKey {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-                        }
-                    } else {
+                    VStack(alignment: .trailing, spacing: 6) {
                         HStack(spacing: 8) {
                             Text(apiKeyDisplay)
                                 .font(.system(.body, design: .monospaced))
                                 .foregroundStyle(Color(white: 0.5))
 
-                            Button("修改") {
-                                newApiKey = ""
-                                apiKeyError = nil
-                                isEditingApiKey = true
+                            Button(isRelinking ? "等待确认…" : "重新链接") {
+                                Task { await relink() }
                             }
                             .font(.caption)
+                            .disabled(isRelinking)
+                        }
+                        if let relinkUserCode {
+                            Text("验证码: \(relinkUserCode)")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                        if let relinkError {
+                            Text(relinkError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .lineLimit(2)
                         }
                     }
                 }
@@ -199,33 +177,64 @@ struct SettingsView: View {
         }
     }
 
-    private func validateAndUpdateKey() async {
-        apiKeyError = nil
-        isValidatingKey = true
-        defer { isValidatingKey = false }
+    private func relink() async {
+        relinkError = nil
+        relinkUserCode = nil
+        isRelinking = true
+        defer { isRelinking = false }
 
-        debugLog("[Settings] Validating key: \(newApiKey.prefix(12))... against \(AppConfig.defaultApiUrl)")
-        let client = APIClient(baseURL: AppConfig.defaultApiUrl, apiKey: newApiKey)
+        let baseURL = AppConfig.defaultApiUrl
+        let hostname = Host.current().localizedName?.replacingOccurrences(of: ".local", with: "")
+        let device: DeviceCodeResponse
         do {
-            let response = try await client.validateKeyAndFetch()
-            debugLog("[Settings] Key valid! Saving config...")
-            appState.configure(apiKey: newApiKey, apiUrl: AppConfig.defaultApiUrl)
-            appState.buckets = response.buckets
-            appState.hasAnyData = response.hasAnyData
-            isEditingApiKey = false
-            newApiKey = ""
-            loadSettings()
-        } catch let error as APIClient.APIError {
-            debugLog("[Settings] APIError: \(error)")
-            if case .unauthorized = error {
-                apiKeyError = "API Key \u{65E0}\u{6548}"
-            } else {
-                apiKeyError = "\u{7F51}\u{7EDC}\u{9519}\u{8BEF}: \(error.localizedDescription)"
-            }
+            device = try await requestDeviceCode(baseURL: baseURL, clientName: "Vibe Usage.app", hostname: hostname)
         } catch {
-            debugLog("[Settings] Error: \(error)")
-            apiKeyError = "\u{9A8C}\u{8BC1}\u{5931}\u{8D25}: \(error.localizedDescription)"
+            relinkError = "无法连接服务端：\(error.localizedDescription)"
+            return
         }
+
+        relinkUserCode = device.userCode
+        if let url = URL(string: device.verificationUriComplete) {
+            NSWorkspace.shared.open(url)
+        }
+
+        let intervalNs = UInt64(max(device.interval, 1)) * 1_000_000_000
+        let deadline = Date().addingTimeInterval(TimeInterval(device.expiresIn))
+
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: intervalNs)
+            let res: DevicePollResponse
+            do {
+                res = try await pollDeviceCode(baseURL: baseURL, deviceCode: device.deviceCode)
+            } catch {
+                continue
+            }
+            if let apiKey = res.apiKey {
+                appState.configure(apiKey: apiKey, apiUrl: res.apiUrl ?? baseURL)
+                await appState.fetchUsageData()
+                relinkUserCode = nil
+                loadSettings()
+                return
+            }
+            switch res.error {
+            case "authorization_pending", nil:
+                continue
+            case "access_denied":
+                relinkError = DeviceFlowError.denied.localizedDescription
+                relinkUserCode = nil
+                return
+            case "expired_token":
+                relinkError = DeviceFlowError.expired.localizedDescription
+                relinkUserCode = nil
+                return
+            default:
+                relinkError = "服务端返回未知错误：\(res.error ?? "unknown")"
+                relinkUserCode = nil
+                return
+            }
+        }
+        relinkError = DeviceFlowError.expired.localizedDescription
+        relinkUserCode = nil
     }
 
     private func resetConfig() {

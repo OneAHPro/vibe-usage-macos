@@ -4,9 +4,14 @@ import SwiftUI
 struct PopoverView: View {
     @Environment(AppState.self) private var appState
     @EnvironmentObject var updaterViewModel: UpdaterViewModel
-    @State private var setupApiKey = ""
-    @State private var isValidatingKey = false
+    @State private var deviceFlowState: DeviceFlowUIState = .idle
+    @State private var pendingUserCode: String?
     @State private var setupError: String?
+
+    enum DeviceFlowUIState {
+        case idle
+        case awaitingApproval
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,56 +52,50 @@ struct PopoverView: View {
                 .background(Color(white: 0.16))
 
             VStack(alignment: .leading, spacing: 16) {
-                // API Key input
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 0) {
-                        Text("粘贴 API Key")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white)
-                        Spacer()
-                        Button {
-                            if let url = URL(string: "\(AppConfig.defaultApiUrl)/usage/setup") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        } label: {
-                            HStack(spacing: 3) {
-                                Text("获取 Key")
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 9))
-                            }
+                if let pendingUserCode {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "info.circle")
                             .font(.system(size: 12))
-                            .foregroundStyle(Color(red: 0.4, green: 0.6, blue: 1.0))
-                        }
-                        .buttonStyle(.plain)
+                            .foregroundStyle(Color(white: 0.5))
+                        Text("请确认浏览器中显示的验证码与下方一致")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color(white: 0.7))
                     }
-                    TextField("vbu_...", text: $setupApiKey)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(.white)
-                        .padding(8)
-                        .background(Color(white: 0.08))
-                        .cornerRadius(4)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(white: 0.06))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+                    .cornerRadius(4)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("验证码")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Color(white: 0.5))
+                            .textCase(.uppercase)
+                        Text(pendingUserCode)
+                            .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .tracking(3)
+                    }
                 }
 
-                // Error
                 if let setupError {
                     Text(setupError)
                         .font(.system(size: 12))
                         .foregroundStyle(.red)
                 }
 
-                // CTA
                 Button {
-                    Task { await validateAndSaveKey() }
+                    Task { await runDeviceFlow() }
                 } label: {
                     HStack(spacing: 6) {
-                        if isValidatingKey {
+                        if deviceFlowState == .awaitingApproval {
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(.black)
                         }
-                        Text(isValidatingKey ? "验证中..." : "开始使用")
+                        Text(deviceFlowState == .awaitingApproval ? "等待浏览器确认…" : "登录并链接数据")
                             .font(.system(size: 13, weight: .medium))
                     }
                     .frame(maxWidth: .infinity)
@@ -105,34 +104,70 @@ struct PopoverView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.white)
                 .foregroundStyle(.black)
-                .disabled(setupApiKey.isEmpty || !setupApiKey.hasPrefix("vbu_") || isValidatingKey)
+                .disabled(deviceFlowState == .awaitingApproval)
             }
             .padding(16)
         }
     }
 
 
-    private func validateAndSaveKey() async {
+    private func runDeviceFlow() async {
         setupError = nil
-        isValidatingKey = true
-        defer { isValidatingKey = false }
+        deviceFlowState = .awaitingApproval
+        pendingUserCode = nil
+        defer { deviceFlowState = .idle }
 
-        let client = APIClient(baseURL: AppConfig.defaultApiUrl, apiKey: setupApiKey)
+        let baseURL = AppConfig.defaultApiUrl
+        let hostname = Host.current().localizedName?.replacingOccurrences(of: ".local", with: "")
+        let device: DeviceCodeResponse
         do {
-            let response = try await client.validateKeyAndFetch()
-            // Key valid — save config, load data, show dashboard
-            appState.configure(apiKey: setupApiKey, apiUrl: AppConfig.defaultApiUrl)
-            appState.buckets = response.buckets
-            appState.hasAnyData = response.hasAnyData
-        } catch let error as APIClient.APIError {
-            if case .unauthorized = error {
-                setupError = "API Key 无效，请检查后重试"
-            } else {
-                setupError = "网络错误: \(error.localizedDescription)"
-            }
+            device = try await requestDeviceCode(baseURL: baseURL, clientName: "Vibe Usage.app", hostname: hostname)
         } catch {
-            setupError = "验证失败: \(error.localizedDescription)"
+            setupError = "无法连接服务端：\(error.localizedDescription)"
+            return
         }
+
+        pendingUserCode = device.userCode
+        if let url = URL(string: device.verificationUriComplete) {
+            NSWorkspace.shared.open(url)
+        }
+
+        let intervalNs = UInt64(max(device.interval, 1)) * 1_000_000_000
+        let deadline = Date().addingTimeInterval(TimeInterval(device.expiresIn))
+
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: intervalNs)
+            let res: DevicePollResponse
+            do {
+                res = try await pollDeviceCode(baseURL: baseURL, deviceCode: device.deviceCode)
+            } catch {
+                continue
+            }
+            if let apiKey = res.apiKey {
+                pendingUserCode = nil
+                appState.configure(apiKey: apiKey, apiUrl: res.apiUrl ?? baseURL)
+                await appState.fetchUsageData()
+                return
+            }
+            switch res.error {
+            case "authorization_pending", nil:
+                continue
+            case "access_denied":
+                setupError = DeviceFlowError.denied.localizedDescription
+                pendingUserCode = nil
+                return
+            case "expired_token":
+                setupError = DeviceFlowError.expired.localizedDescription
+                pendingUserCode = nil
+                return
+            default:
+                setupError = "服务端返回未知错误：\(res.error ?? "unknown")"
+                pendingUserCode = nil
+                return
+            }
+        }
+        setupError = DeviceFlowError.expired.localizedDescription
+        pendingUserCode = nil
     }
 
     // MARK: - Dashboard

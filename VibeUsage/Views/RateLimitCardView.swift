@@ -130,25 +130,59 @@ private struct ProviderCard: View {
         }
     }
 
-    /// Visible quota rows in display order, paired with the label we use as
-    /// the hover key. Computing this once lets us share between the rows
-    /// VStack and the tooltip overlay.
-    private var visibleRows: [(label: String, window: RateLimitWindow)] {
-        var out: [(String, RateLimitWindow)] = []
-        if let w = snapshot.fiveHour { out.append(("5h", w)) }
-        if let w = snapshot.sevenDay { out.append(("7d", w)) }
+    /// One slot in the rows VStack: either a live `QuotaRow` or a placeholder
+    /// for a window the plan covers but has no current data for. The case
+    /// matters for the tooltip overlay — only `.live` rows have a hover key.
+    private enum RowItem {
+        case live(label: String, window: RateLimitWindow)
+        case placeholder(label: String, message: String)
+
+        var hoverLabel: String {
+            switch self {
+            case let .live(label, _): return label
+            case let .placeholder(label, _): return label
+            }
+        }
+
+        var liveWindow: RateLimitWindow? {
+            if case let .live(_, window) = self { return window }
+            return nil
+        }
+    }
+
+    /// Visible rows in display order. Paid Codex plans always reserve the 5h
+    /// slot — if utilization is unknown (no recent activity, so `parseWindow`
+    /// dropped the expired window) we render a placeholder rather than letting
+    /// the 7d row shift up and pose as 5h. Free Codex / Claude never get the
+    /// 5h placeholder because those plans don't carry that window at all.
+    private var visibleRows: [RowItem] {
+        var out: [RowItem] = []
+        if let w = snapshot.fiveHour {
+            out.append(.live(label: "5h", window: w))
+        } else if expectsFiveHourWindow {
+            out.append(.placeholder(label: "5h", message: "近 5 小时无活动"))
+        }
+        if let w = snapshot.sevenDay { out.append(.live(label: "7d", window: w)) }
         return out
+    }
+
+    /// True only for paid Codex plans (Plus / Pro / Business), where Codex
+    /// emits both `primary` and `secondary` windows in every `token_count`
+    /// payload. Free-tier and Claude payloads don't carry a 5h window, so
+    /// reserving the slot would just confuse users on those plans.
+    private var expectsFiveHourWindow: Bool {
+        guard snapshot.provider == .codex,
+              let plan = snapshot.planLabel?.lowercased() else { return false }
+        return plan == "plus" || plan == "pro" || plan == "business"
     }
 
     @ViewBuilder
     private var quotaRows: some View {
         let rows = visibleRows
         VStack(alignment: .leading, spacing: rowSpacing) {
-            ForEach(Array(rows.enumerated()), id: \.element.label) { _, row in
-                QuotaRow(label: row.label, window: row.window) { hovering in
-                    hoveredLabel = hovering ? row.label : (hoveredLabel == row.label ? nil : hoveredLabel)
-                }
-                .frame(height: rowHeight)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                rowView(row)
+                    .frame(height: rowHeight)
             }
             if rows.isEmpty {
                 Text("暂无订阅配额数据")
@@ -162,8 +196,8 @@ private struct ProviderCard: View {
         // so it cannot be obscured by sibling rows). No zIndex needed.
         .overlay(alignment: .topLeading) {
             if let hovered = hoveredLabel,
-               let idx = rows.firstIndex(where: { $0.label == hovered }) {
-                let win = rows[idx].window
+               let idx = rows.firstIndex(where: { $0.hoverLabel == hovered }),
+               let win = rows[idx].liveWindow {
                 TooltipView(
                     title: tooltipTitle(for: hovered),
                     tokenPercentText: win.percentText,
@@ -178,6 +212,18 @@ private struct ProviderCard: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: hoveredLabel)
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: RowItem) -> some View {
+        switch row {
+        case let .live(label, window):
+            QuotaRow(label: label, window: window) { hovering in
+                hoveredLabel = hovering ? label : (hoveredLabel == label ? nil : hoveredLabel)
+            }
+        case let .placeholder(label, message):
+            EmptyQuotaRow(label: label, message: message)
+        }
     }
 
     // Fixed row metrics so the tooltip can be positioned deterministically.
@@ -319,6 +365,33 @@ private struct QuotaRow: View {
                     .foregroundStyle(ProgressBar.color(for: window.utilization))
                     .frame(width: 36, alignment: .trailing)
             }
+        }
+    }
+}
+
+// MARK: - Empty quota row
+
+/// Placeholder for a window the plan covers but currently has no data for —
+/// e.g. paid-Codex 5h after the user has been idle for >5h. Keeps the label
+/// column aligned with `QuotaRow` so the 7d row doesn't visually shift into
+/// the 5h slot. No progress bar, no hover state.
+private struct EmptyQuotaRow: View {
+    let label: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Text(label)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color(white: 0.4))
+                .frame(width: 20, alignment: .leading)
+
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(Color(white: 0.45))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

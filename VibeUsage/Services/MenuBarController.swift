@@ -93,6 +93,30 @@ final class MenuBarController: NSObject {
         ActivationCoordinator.shared.onUpdateModalVisibilityChange = { [weak self] showing in
             self?.panel?.level = showing ? .normal : .popUpMenu
         }
+
+        // When macOS Screenshot.app (⌘⇧3/4/5) or any screen-capture UI activates,
+        // close the popover. Our `.popUpMenu` panel sits above the screenshot
+        // overlay, which (a) blocks the user from screenshotting whatever is
+        // behind it and (b) prevents the interactive region/window selector
+        // from targeting our window properly. Letting the popover dismiss
+        // matches the "get out of the way" mental model users have when they
+        // start a screenshot.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleAppActivation(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleAppActivation(_ note: Notification) {
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              let bundleID = app.bundleIdentifier else { return }
+        // com.apple.screencaptureui covers ⌘⇧3/4/5 and the Screenshot.app menu;
+        // com.apple.ScreenSaver.Engine is unrelated but cheap to ignore here.
+        if bundleID == "com.apple.screencaptureui" {
+            closePanel()
+        }
     }
 
     // MARK: - Status item

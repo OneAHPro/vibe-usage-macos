@@ -130,12 +130,26 @@ final class AppState {
     }
 
     // MARK: - Menu Bar Stats (matches current time range, no filters)
+
+    /// Buckets within the active range's window. `.today` and `.oneDay` both
+    /// fetch `days=1`, so `buckets` is identical for both — the only thing that
+    /// distinguishes them is the client-side `startCutoff`. The popover views
+    /// apply that cutoff; the menu bar must too, or toggling 今天 ↔ 24H leaves
+    /// the menu bar stuck on the full-24h total (see vibe-cafe@f5f022b).
+    private var menuBarBuckets: [UsageBucket] {
+        guard let cutoff = timeRange.startCutoff else { return buckets }
+        return buckets.filter { bucket in
+            guard let date = bucket.date else { return true }
+            return date >= cutoff
+        }
+    }
+
     var menuBarCost: Double {
-        buckets.reduce(0) { $0 + ($1.estimatedCost ?? 0) }
+        menuBarBuckets.reduce(0) { $0 + ($1.estimatedCost ?? 0) }
     }
 
     var menuBarTokens: Int {
-        buckets.reduce(0) { $0 + $1.computedTotal + $1.cachedInputTokens }
+        menuBarBuckets.reduce(0) { $0 + $1.computedTotal + $1.cachedInputTokens }
     }
     // MARK: - Services (initialized after launch)
     private var syncScheduler: SyncScheduler?

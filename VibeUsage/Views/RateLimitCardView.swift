@@ -346,19 +346,14 @@ private struct QuotaRow: View {
                     .foregroundStyle(ProgressBar.color(for: window.utilization))
                     .frame(width: 36, alignment: .trailing)
             } else {
-                // Claude: no window length to derive a time bar — show the
-                // full info in text: used-% and when it resets.
+                // Claude: no window length to derive a time bar. The reset
+                // countdown isn't shown inline (it churns every minute and read
+                // as clutter, esp. right after a reset) — it lives in the hover
+                // tooltip's "重置 · 剩余 X" row instead.
                 ProgressBar(value: window.utilization)
                     .frame(height: 6)
                     .contentShape(Rectangle())
                     .onHover { hovering in onHover(hovering) }
-
-                if let reset = window.remainingText {
-                    Text("剩 \(reset)")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.45))
-                        .fixedSize()
-                }
 
                 Text(window.percentText)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))

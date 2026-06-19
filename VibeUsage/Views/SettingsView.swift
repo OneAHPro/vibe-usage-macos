@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var isRelinking = false
     @State private var relinkUserCode: String?
     @State private var relinkError: String?
+    @State private var relinkTask: Task<Void, Never>?
 
     var body: some View {
         Form {
@@ -24,10 +25,18 @@ struct SettingsView: View {
                                 .foregroundStyle(Color(white: 0.5))
 
                             Button(isRelinking ? "等待确认…" : "重新链接") {
-                                Task { await relink() }
+                                relinkTask = Task { await relink() }
                             }
                             .font(.caption)
                             .disabled(isRelinking)
+
+                            if isRelinking {
+                                Button("取消") {
+                                    cancelRelink()
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
                         }
                         if let relinkUserCode {
                             Text("验证码: \(relinkUserCode)")
@@ -202,7 +211,9 @@ struct SettingsView: View {
         let deadline = Date().addingTimeInterval(TimeInterval(device.expiresIn))
 
         while Date() < deadline {
+            if Task.isCancelled { return }
             try? await Task.sleep(nanoseconds: intervalNs)
+            if Task.isCancelled { return }
             let res: DevicePollResponse
             do {
                 res = try await pollDeviceCode(baseURL: baseURL, deviceCode: device.deviceCode)
@@ -235,6 +246,17 @@ struct SettingsView: View {
         }
         relinkError = DeviceFlowError.expired.localizedDescription
         relinkUserCode = nil
+    }
+
+    /// Abort an in-flight re-link so the user can start over immediately rather
+    /// than waiting out the 15-minute timeout. The cancelled task returns at its
+    /// next checkpoint; its `defer` clears `isRelinking`.
+    private func cancelRelink() {
+        relinkTask?.cancel()
+        relinkTask = nil
+        relinkUserCode = nil
+        relinkError = nil
+        isRelinking = false
     }
 
     private func resetConfig() {

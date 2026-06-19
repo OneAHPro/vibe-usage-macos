@@ -7,6 +7,7 @@ struct PopoverView: View {
     @State private var deviceFlowState: DeviceFlowUIState = .idle
     @State private var pendingUserCode: String?
     @State private var setupError: String?
+    @State private var deviceFlowTask: Task<Void, Never>?
 
     enum DeviceFlowUIState {
         case idle
@@ -87,7 +88,8 @@ struct PopoverView: View {
                 }
 
                 Button {
-                    Task { await runDeviceFlow() }
+                    let task = Task { await runDeviceFlow() }
+                    deviceFlowTask = task
                 } label: {
                     HStack(spacing: 6) {
                         if deviceFlowState == .awaitingApproval {
@@ -105,6 +107,19 @@ struct PopoverView: View {
                 .tint(.white)
                 .foregroundStyle(.black)
                 .disabled(deviceFlowState == .awaitingApproval)
+
+                if deviceFlowState == .awaitingApproval {
+                    Button {
+                        cancelDeviceFlow()
+                    } label: {
+                        Text("取消，重新开始")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(white: 0.6))
+                }
             }
             .padding(16)
         }
@@ -136,7 +151,9 @@ struct PopoverView: View {
         let deadline = Date().addingTimeInterval(TimeInterval(device.expiresIn))
 
         while Date() < deadline {
+            if Task.isCancelled { return }
             try? await Task.sleep(nanoseconds: intervalNs)
+            if Task.isCancelled { return }
             let res: DevicePollResponse
             do {
                 res = try await pollDeviceCode(baseURL: baseURL, deviceCode: device.deviceCode)
@@ -168,6 +185,18 @@ struct PopoverView: View {
         }
         setupError = DeviceFlowError.expired.localizedDescription
         pendingUserCode = nil
+    }
+
+    /// Abort an in-flight device flow so the user can re-link immediately
+    /// instead of waiting out the 15-minute timeout. Cancelling the task makes
+    /// runDeviceFlow() return at its next checkpoint; its `defer` resets the
+    /// UI state back to idle.
+    private func cancelDeviceFlow() {
+        deviceFlowTask?.cancel()
+        deviceFlowTask = nil
+        pendingUserCode = nil
+        setupError = nil
+        deviceFlowState = .idle
     }
 
     // MARK: - Dashboard

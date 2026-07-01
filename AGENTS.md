@@ -33,7 +33,7 @@ vibe-usage-app/                    # SwiftUI macOS menu bar app (SPM, Swift 6, m
 │   │   ├── UpdaterViewModel.swift # Sparkle SPUUpdater bridge + SPUUpdaterDelegate proxy (publishes availableUpdate)
 │   │   ├── MenuBarController.swift # NSStatusItem + custom borderless popover panel (multi-line title, animated open/close)
 │   │   ├── PopoverPanel.swift     # NSPanel subclass that becomes key for TextField input
-│   │   ├── SettingsWindowController.swift  # NSWindow wrapper (LSUIElement keyboard workaround)
+│   │   ├── SettingsWindowController.swift  # NSWindow wrapper for settings
 │   │   └── ActivationCoordinator.swift     # Centralizes NSApp.activationPolicy across popup + Settings
 │   ├── Utils/
 │   │   ├── Formatters.swift       # Number, cost, date, time formatting
@@ -65,7 +65,7 @@ swift build -c release                   # Release build
 ## Architecture
 
 ### App Type
-LSUIElement menu bar app — no dock icon, no main window. `AppDelegate` owns a `MenuBarController` that manages an `NSStatusItem` plus a borderless `PopoverPanel` (custom NSPanel) hosting the SwiftUI dashboard. We dropped `MenuBarExtra` so the status item can render multi-line text via `NSHostingView` (cost over tokens) and the panel can use a custom open/close animation anchored to the icon.
+Regular Dock app with a menu-bar status item. `AppDelegate` owns a `MenuBarController` that manages an `NSStatusItem` plus a borderless `PopoverPanel` (custom NSPanel) hosting the SwiftUI dashboard. We dropped `MenuBarExtra` so the status item can render multi-line text via `NSHostingView` (cost over tokens) and the panel can use a custom open/close animation anchored to the icon. Dock re-open events call `MenuBarController.presentPanel()`, so clicking the Dock icon opens or foregrounds the same dashboard panel as the menu-bar item. `swift run` is a bare executable, so `AppDelegate` also sets `.regular` activation policy and loads the Dock icon from the bundled `AppIcon.appiconset`.
 
 ### State Management
 `AppState` is `@Observable` and injected via `@Environment`. All views read from it. No Combine, no ObservableObject (except `UpdaterViewModel` which bridges Sparkle's KVO).
@@ -76,8 +76,9 @@ VibeUsageApp → AppDelegate → MenuBarController (NSStatusItem + PopoverPanel)
 └── PopoverView (520px wide, hosted in NSHostingView pinned to panel.contentView)
     ├── unconfiguredView          # First-run device-flow linking (browser login → poll → save key)
     └── dashboardView
-        ├── headerBar             # Title, "查看详情" link, time range (今天/24H/7D/30D), settings gear
+        ├── headerBar             # Title, web links (详情/排行榜), settings
         ├── ScrollView
+        │   ├── RateLimitCardView # Codex / Claude subscription quota cards
         │   ├── FilterTagsView    # Source/model/project/hostname filter pills
         │   ├── SummaryCardsView  # 5 stat cards
         │   ├── BarChartView      # Trend chart (hourly or daily)
@@ -86,18 +87,27 @@ VibeUsageApp → AppDelegate → MenuBarController (NSStatusItem + PopoverPanel)
 ```
 
 ### Data Flow
-1. `APIClient.fetchUsage(days:)` fetches from `/api/usage` with Bearer token auth
+1. `APIClient.fetchUsage(range:)` fetches from `/api/usage` with Bearer token auth
 2. Response decoded into `[UsageBucket]`, stored in `AppState.buckets`
 3. Views compute filtered data locally: `appState.buckets.filter { ... appState.filters ... }`
 4. Charts aggregate filtered buckets by time key or dimension
 
-### Time Range (today / 24H / 7D / 30D)
+### Time Range (today / 24H / 7D / 30D / 90D / custom)
 `TimeRange` (`AppState.swift`) has two hourly-granularity cases that look similar but mean different things — the split mirrors `vibe-cafe@f5f022b`, where the single rolling "1D" pill confused users who read it as "today" but watched the number shrink as the earliest hour rolled off.
 
 - `.today` (UI: 「今天」) — local-midnight → now, fixed start. Only grows through the day.
 - `.oneDay` (UI: 「24H」, raw value still `"1D"` for state stability) — rolling last 24 hours.
+- `.sevenDays`, `.thirtyDays`, `.ninetyDays` — fixed day-count ranges.
+- `.custom` — user-selected local date bounds, sent as `from` / `to` query params.
 
-Both request `days=1` from the backend; the today-cutoff is then applied **client-side** via `TimeRange.startCutoff` (returns `Calendar.current.startOfDay(for: Date())` for `.today`, nil otherwise). Each consumer that reads `appState.buckets` (and `filteredSessions`) adds one line: `if let cutoff, let date = bucket.date, date < cutoff { return false }`. Keeps the API contract unchanged and the cutoff in a single source of truth. `BarChartView`'s hourly fill loop also keys off `appState.timeRange == .today` to start at midnight (slot count grows from 1 → 24) instead of "23 hours ago" for the rolling-24h case.
+Today requests `from=localMidnight` while rolling 24h requests `days=1`. The today-cutoff is also applied client-side via `TimeRange.startCutoff` so all filtered views and the menu-bar display share the same local-midnight semantics. `BarChartView`'s hourly fill loop keys off `appState.timeRange == .today` to start at midnight (slot count grows from 1 → 24) instead of "23 hours ago" for the rolling-24h case. Every `/api/usage` request includes `tz=TimeZone.current.identifier`.
+
+### Loading & Filtering
+`AppState` distinguishes first load from refresh:
+- `isInitialDataLoad` / `!hasLoadedUsageData` → show layout-matched skeleton blocks under a loading pill.
+- `isRefreshingData` → keep the current dashboard visible, dim it, and overlay a small loading pill.
+
+Time-range changes and custom-date Apply trigger a server fetch. Filter changes are local only and animate the existing summary cards, trend bars, and distribution charts without refetching.
 
 ### Chart Hover & Scroll
 `BarChartView` is split into a parent that computes the O(n) `chartData`
@@ -131,15 +141,12 @@ No background timer. `RateLimitCoordinator` is driven entirely by user-visible e
 - **Codex staleness policy (stricter than Claude's).** Codex's `rate_limits.primary/secondary.resets_at` is anchored to a true rolling window, so a `resets_at` already in the past proves that window has rolled over and the snapshot's `used_percent` is from the *previous* window. `CodexRateLimitReader.parseWindow` drops any such slot (per-window — 5h and 7d expire independently), and `read()` returns `.noData` if both slots are expired so the card collapses. Without this filter the reader would display a stale percentage indefinitely (e.g. an 8% reading hanging around 12 days after that window's `resets_at`). The Claude reader is intentionally more lenient — it keeps `used_percentage` and only suppresses the elapsed-time bar when stale — because Claude's payload has no equivalent "this window has provably rolled" signal; staleness there just means Claude Code is idle.
 
 ### Settings Window
-Settings uses a raw `NSWindow` via `SettingsWindowController` because SwiftUI `Settings` scenes don't work in LSUIElement apps. Opening Settings promotes `NSApp.activationPolicy` to `.regular` (dock icon + click-to-front behavior); `ActivationCoordinator` reverts to `.accessory` / `.prohibited` on close depending on whether the menu-bar popup is still open.
+Settings uses a raw `NSWindow` via `SettingsWindowController`. The SwiftUI `Settings` scene stays as a placeholder to satisfy the `App` protocol; the actual settings surface is managed directly so it behaves consistently alongside the custom dashboard panel.
 
 ### ActivationCoordinator
-`NSApp.activationPolicy` has to change depending on which surface is visible:
-- popup only → `.accessory` (so `TextField` can receive key events)
-- Settings visible → `.regular` (so the window behaves like a normal app window)
-- neither → `.prohibited` (true LSUIElement)
+Vibe Usage is now a regular Dock app, so `ActivationCoordinator` keeps `NSApp.activationPolicy` at `.regular`. It remains the single place that reconciles activation policy, which prevents future popup/settings transitions from fighting each other.
 
-`ActivationCoordinator` is the only place that calls `setActivationPolicy`. Without it, closing one surface could strand the other — e.g. dismissing the popup would drop the app to `.prohibited` and AppKit would tear down the still-visible Settings window. It also emits `onSettingsVisibilityChange`, which `MenuBarController` uses to lower the popover panel from `.popUpMenu` to `.normal` while Settings is visible (so standard z-ordering lets a click on Settings bring it forward).
+It also emits `onSettingsVisibilityChange`, which `MenuBarController` uses to lower the popover panel from `.popUpMenu` to `.normal` while Settings is visible (so standard z-ordering lets a click on Settings bring it forward).
 
 ### Menu-Bar Click Handling
 The status item renders SwiftUI via `NSHostingView` inside the `NSStatusBarButton`. A vanilla `NSHostingView` swallows the button's action — use `PassthroughHostingView` (defined inside `MenuBarController.swift`), which overrides `hitTest(_:) -> nil` (routes events to the button), `acceptsFirstMouse(for:) -> true` (first click registers when the app is inactive), and `mouseDown`/`mouseUp` forwarding to `superview` (fallback when SwiftUI's responder chain receives the event instead of the button).
@@ -171,16 +178,18 @@ struct UsageBucket: Codable, Identifiable, Equatable {
     let totalTokens: Int
     let estimatedCost: Double?      // Server-calculated cost (nil if model unmatched)
 
-    var computedTotal: Int           // inputTokens + outputTokens + reasoningOutputTokens (excludes cachedInputTokens, matches web "总 Token")
+    var computedTotal: Int           // inputTokens + outputTokens + reasoningOutputTokens + cachedInputTokens (matches web "总 Token")
     var dayKey: String               // "yyyy-MM-dd" from bucketStart
     var hourKey: String              // "yyyy-MM-ddTHH" from bucketStart
 }
 ```
 
 Token aggregation conventions (aligned with the web Vibe Usage page):
-- Popup summary "总 Token" card → `computedTotal` (no cache reads)
+- Popup summary "总 Token" card → `computedTotal` (includes cache reads, matching web "总 Token")
 - Popup summary "缓存 Token" card → `cachedInputTokens` (cache reads only)
-- Menu-bar token line → `computedTotal + cachedInputTokens` (sum of both, so cache reads are visible in the single-number menu-bar display)
+- Trend chart token mode → stacked output, input, and cached segments; reasoning tokens are folded into output.
+- Distribution charts token mode → `computedTotal`
+- Menu-bar token line → `computedTotal`
 - `estimatedCost` already accounts for cache reads (server-side, at `cacheReadMtok` rate)
 
 ## Styling Conventions

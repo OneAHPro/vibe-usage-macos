@@ -215,32 +215,22 @@ struct PopoverView: View {
             // Scrollable content
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
-                    if appState.isLoadingData && appState.buckets.isEmpty {
-                        loadingView
-                    } else if !appState.hasAnyData {
-                        RateLimitCardView()
-                        emptyStateView
-                    } else {
-                        // Rate-limit row gets its own block separated from the
-                        // usage dashboard by a divider so the visual boundary
-                        // between "subscription quota" and "consumption stats"
-                        // is unambiguous.
-                        // zIndex bumps it above the sibling sections that follow
-                        // so the per-row hover tooltips, which overflow the
-                        // card edge downward, stay above the divider / filters.
+                    if appState.isInitialDataLoad || (!appState.hasLoadedUsageData && appState.buckets.isEmpty) {
                         RateLimitCardView()
                             .zIndex(1)
                         Divider()
                             .background(Color(white: 0.16))
                             .padding(.vertical, 2)
-                        FilterTagsView()
-                            .zIndex(10)
-                        SummaryCardsView()
-                        BarChartView()
-                        DistributionChartsView()
+                        loadingDashboardView
+                    } else if !appState.hasAnyData {
+                        RateLimitCardView()
+                        emptyStateView
+                    } else {
+                        dashboardContent
                     }
                 }
                 .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(height: 560)
 
@@ -252,6 +242,34 @@ struct PopoverView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
         }
+    }
+
+    private var dashboardContent: some View {
+        ZStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Rate-limit row gets its own block separated from the usage
+                // dashboard by a divider so quota and consumption stats stay distinct.
+                RateLimitCardView()
+                    .zIndex(1)
+                Divider()
+                    .background(Color(white: 0.16))
+                    .padding(.vertical, 2)
+                FilterTagsView()
+                    .zIndex(10)
+                SummaryCardsView()
+                BarChartView()
+                DistributionChartsView()
+            }
+            .opacity(appState.isRefreshingData ? 0.72 : 1)
+            .animation(.easeInOut(duration: 0.2), value: appState.isRefreshingData)
+
+            if appState.isRefreshingData {
+                refreshOverlay
+                    .transition(.opacity)
+                    .zIndex(30)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: appState.isRefreshingData)
     }
 
     // MARK: - Header
@@ -423,16 +441,36 @@ struct PopoverView: View {
 
     // MARK: - States
 
-    private var loadingView: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.regular)
-            Text("加载数据中...")
-                .font(.system(size: 13))
-                .foregroundStyle(Color(white: 0.5))
+    private var loadingDashboardView: some View {
+        ZStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 14) {
+                SkeletonSummaryCards()
+                SkeletonBlock(height: 238)
+                SkeletonDistributionGrid()
+            }
+            .redacted(reason: .placeholder)
+            .opacity(0.78)
+
+            refreshOverlay
+                .padding(.top, 90)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 200)
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var refreshOverlay: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("加载中")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(white: 0.66))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
     }
 
     private var emptyStateView: some View {
@@ -449,5 +487,43 @@ struct PopoverView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 200)
+    }
+}
+
+private struct SkeletonSummaryCards: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<4, id: \.self) { _ in
+                SkeletonBlock(height: 70)
+                    .frame(minWidth: 0, maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+private struct SkeletonDistributionGrid: View {
+    private let columns = [
+        GridItem(.flexible(minimum: 0), spacing: 10),
+        GridItem(.flexible(minimum: 0), spacing: 10),
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 10) {
+            ForEach(0..<4, id: \.self) { _ in
+                SkeletonBlock(height: 190)
+            }
+        }
+    }
+}
+
+private struct SkeletonBlock: View {
+    let height: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color(white: 0.09))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
     }
 }

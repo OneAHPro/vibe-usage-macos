@@ -30,6 +30,7 @@ struct FilterTagsView: View {
     @State private var openFilter: FilterDimension?
     @State private var expandedModelFamilies: Set<String> = Set()
     private let filterGap: CGFloat = 8
+    private let filterRowHeight: CGFloat = 28
     private let dropdownWidth: CGFloat = 240
     private let dropdownMaxHeight: CGFloat = 260
 
@@ -60,7 +61,9 @@ struct FilterTagsView: View {
 
                 if !appState.filters.isEmpty {
                     Button {
-                        state.filters.clear()
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            state.filters.clear()
+                        }
                     } label: {
                         Text("清除")
                             .font(.system(size: 12, weight: .medium))
@@ -77,28 +80,40 @@ struct FilterTagsView: View {
                 customRangeControls
             }
 
-            HStack(spacing: filterGap) {
-                ForEach(FilterDimension.allCases, id: \.self) { dimension in
-                    filterButton(for: dimension)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                GeometryReader { proxy in
-                    if let openFilter {
-                        filterPanel(for: openFilter)
-                            .frame(width: dropdownWidth, height: dropdownHeight(for: openFilter))
-                            .offset(
-                                x: dropdownX(for: openFilter, in: proxy.size.width),
-                                y: 34
-                            )
-                            .fixedSize(horizontal: false, vertical: true)
-                            .zIndex(20)
+            filterGrid
+                .zIndex(20)
+        }
+    }
+
+    private var filterGrid: some View {
+        GeometryReader { proxy in
+            let availableWidth = proxy.size.width
+            let count = CGFloat(FilterDimension.allCases.count)
+            let buttonWidth = max((availableWidth - filterGap * (count - 1)) / count, 0)
+            let panelWidth = min(dropdownWidth, max(availableWidth, 0))
+
+            ZStack(alignment: .topLeading) {
+                HStack(spacing: filterGap) {
+                    ForEach(FilterDimension.allCases, id: \.self) { dimension in
+                        filterButton(for: dimension)
+                            .frame(width: buttonWidth)
                     }
                 }
+                .frame(width: availableWidth, height: filterRowHeight, alignment: .leading)
+
+                if let openFilter {
+                    filterPanel(for: openFilter)
+                        .frame(width: panelWidth, height: dropdownHeight(for: openFilter))
+                        .offset(
+                            x: dropdownX(for: openFilter, in: availableWidth, panelWidth: panelWidth),
+                            y: filterRowHeight + 6
+                        )
+                        .fixedSize(horizontal: false, vertical: true)
+                        .zIndex(20)
+                }
             }
-            .zIndex(20)
         }
+        .frame(height: filterRowHeight)
     }
 
     private var timeRangeSelector: some View {
@@ -106,7 +121,10 @@ struct FilterTagsView: View {
             ForEach(TimeRange.allCases, id: \.rawValue) { range in
                 let isActive = appState.timeRange == range
                 Button {
-                    appState.timeRange = range
+                    guard !appState.isLoadingData, appState.timeRange != range else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        appState.timeRange = range
+                    }
                     Task { await appState.fetchUsageData() }
                 } label: {
                     Text(displayLabel(for: range))
@@ -118,6 +136,7 @@ struct FilterTagsView: View {
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(appState.isLoadingData)
             }
         }
         .padding(2)
@@ -169,6 +188,8 @@ struct FilterTagsView: View {
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+            .disabled(appState.isLoadingData)
+            .opacity(appState.isLoadingData ? 0.55 : 1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -194,17 +215,23 @@ struct FilterTagsView: View {
                 Image(systemName: dimension.icon)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(isActive || isOpen ? Color.white : Color(white: 0.58))
+                    .frame(width: 13)
+                    .layoutPriority(1)
 
                 Text(dimension.label)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(isActive || isOpen ? Color.white : Color(white: 0.66))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .layoutPriority(2)
 
                 Text(summary)
                     .font(.system(size: 12))
                     .foregroundStyle(isActive ? Color(white: 0.86) : Color(white: 0.42))
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .minimumScaleFactor(0.75)
+                    .layoutPriority(1)
 
                 Spacer(minLength: 0)
 
@@ -212,13 +239,17 @@ struct FilterTagsView: View {
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(Color(white: 0.38))
                     .rotationEffect(.degrees(isOpen ? 180 : 0))
+                    .frame(width: 10)
+                    .layoutPriority(1)
             }
             .padding(.horizontal, 9)
-            .frame(height: 28)
+            .frame(minWidth: 0, maxWidth: .infinity)
+            .frame(height: filterRowHeight)
             .background(isActive || isOpen ? Color(white: 0.16) : Color(white: 0.09))
             .clipShape(Capsule())
             .overlay(Capsule().stroke(Color(white: isActive || isOpen ? 0.26 : 0.15), lineWidth: 1))
             .opacity(enabled ? 1 : 0.45)
+            .clipped()
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -240,13 +271,13 @@ struct FilterTagsView: View {
         .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 8)
     }
 
-    private func dropdownX(for dimension: FilterDimension, in width: CGFloat) -> CGFloat {
-        guard width > dropdownWidth else { return 0 }
+    private func dropdownX(for dimension: FilterDimension, in width: CGFloat, panelWidth: CGFloat) -> CGFloat {
+        guard width > panelWidth else { return 0 }
         let index = CGFloat(FilterDimension.allCases.firstIndex(of: dimension) ?? 0)
         let buttonWidth = (width - filterGap * CGFloat(FilterDimension.allCases.count - 1)) / CGFloat(FilterDimension.allCases.count)
         let buttonCenter = index * (buttonWidth + filterGap) + buttonWidth / 2
-        let centered = buttonCenter - dropdownWidth / 2
-        return min(max(0, centered), width - dropdownWidth)
+        let centered = buttonCenter - panelWidth / 2
+        return min(max(0, centered), width - panelWidth)
     }
 
     private func dropdownHeight(for dimension: FilterDimension) -> CGFloat {
@@ -322,10 +353,12 @@ struct FilterTagsView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 0) {
                         Button {
-                            if allSelected {
-                                appState.filters.models.subtract(familyModels)
-                            } else {
-                                appState.filters.models.formUnion(familyModels)
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                if allSelected {
+                                    appState.filters.models.subtract(familyModels)
+                                } else {
+                                    appState.filters.models.formUnion(familyModels)
+                                }
                             }
                         } label: {
                             checkRowContent(
@@ -337,10 +370,12 @@ struct FilterTagsView: View {
                         .buttonStyle(.plain)
 
                         Button {
-                            if isExpanded {
-                                expandedModelFamilies.remove(familyKey)
-                            } else {
-                                expandedModelFamilies.insert(familyKey)
+                            withAnimation(.easeOut(duration: 0.16)) {
+                                if isExpanded {
+                                    expandedModelFamilies.remove(familyKey)
+                                } else {
+                                    expandedModelFamilies.insert(familyKey)
+                                }
                             }
                         } label: {
                             Image(systemName: "chevron.down")
@@ -382,6 +417,7 @@ struct FilterTagsView: View {
                     .truncationMode(.middle)
             }
             .padding(.leading, indent)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
@@ -432,10 +468,12 @@ struct FilterTagsView: View {
     }
 
     private func toggle(_ value: String, in set: inout Set<String>) {
-        if set.contains(value) {
-            set.remove(value)
-        } else {
-            set.insert(value)
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if set.contains(value) {
+                set.remove(value)
+            } else {
+                set.insert(value)
+            }
         }
     }
 

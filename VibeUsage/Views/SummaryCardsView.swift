@@ -39,11 +39,15 @@ struct SummaryCardsView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             StatCard(label: "预估费用", value: Formatters.formatCost(totalCost), color: Color(red: 0.2, green: 0.8, blue: 0.5))
-            StatCard(label: "输入+输出 Token", value: Formatters.formatNumber(totalTokens))
+            StatCard(label: "总 Token", value: Formatters.formatNumber(totalTokens))
             StatCard(label: "缓存 Token", value: Formatters.formatNumber(totalCachedInputTokens))
             StatCard(label: "活跃时长", value: Formatters.formatDuration(totalActiveSeconds), color: Color(red: 0.38, green: 0.6, blue: 1.0))
         }
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.28), value: totalCost)
+        .animation(.easeInOut(duration: 0.28), value: totalTokens)
+        .animation(.easeInOut(duration: 0.28), value: totalCachedInputTokens)
+        .animation(.easeInOut(duration: 0.28), value: totalActiveSeconds)
     }
 }
 
@@ -63,6 +67,7 @@ private struct StatCard: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Color(white: 0.63))
                 .lineLimit(1)
+                .truncationMode(.tail)
                 .minimumScaleFactor(0.85)
                 .frame(height: labelHeight, alignment: .leading)
             Text(value)
@@ -70,9 +75,11 @@ private struct StatCard: View {
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-                .frame(height: valueHeight, alignment: .leading)
+                .contentTransition(.numericText())
+                .frame(maxWidth: .infinity, minHeight: valueHeight, maxHeight: valueHeight, alignment: .leading)
+                .clipped()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 11)
         .padding(.vertical, 13)
         .background(Color(white: 0.09))

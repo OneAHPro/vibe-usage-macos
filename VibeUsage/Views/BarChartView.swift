@@ -44,11 +44,12 @@ private final class ScrollWatcher {
     }
 }
 
-private struct BarData: Identifiable {
+private struct BarData: Identifiable, Equatable {
     let id: String // dayKey or hourKey
     var input: Int = 0
     var output: Int = 0
-    var total: Int { input + output }
+    var cached: Int = 0
+    var total: Int { input + output + cached }
     var cost: Double = 0
     var activeMinutes: Double = 0
 }
@@ -82,7 +83,10 @@ struct BarChartView: View {
                 buckets[key] = BarData(id: key)
             }
             buckets[key]!.input += bucket.inputTokens
-            buckets[key]!.output += bucket.outputTokens
+            // Reasoning tokens are priced as output, matching the web chart's
+            // three token tiers: input, output, cache read.
+            buckets[key]!.output += bucket.outputTokens + bucket.reasoningOutputTokens
+            buckets[key]!.cached += bucket.cachedInputTokens
             buckets[key]!.cost += bucket.estimatedCost ?? 0
         }
 
@@ -157,13 +161,16 @@ struct BarChartView: View {
     private var labelInterval: Int {
         let count = chartData.count
         if isHourly {
-            if count <= 12 { return 2 }
-            return 4 // Show every 4 hours
+            if count <= 12 { return 3 }
+            if count <= 18 { return 4 }
+            return 6
         }
         if count <= 3 { return 1 }
-        if count <= 7 { return 2 }
+        if count <= 7 { return 1 }
         if count <= 15 { return 3 }
-        return 7
+        if count <= 45 { return 7 }
+        if count <= 100 { return 14 }
+        return 30
     }
 
     var body: some View {
@@ -175,12 +182,16 @@ struct BarChartView: View {
                 Text(isHourly ? "每小时趋势" : "每日趋势")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(white: 0.63))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Spacer()
                 HStack(spacing: 2) {
                     ForEach(ChartMode.allCases, id: \.self) { mode in
                         Button(action: { state.chartMode = mode }) {
                             Text(mode.rawValue)
                                 .font(.system(size: 11, weight: state.chartMode == mode ? .medium : .regular))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4)
                                 .background(state.chartMode == mode ? Color(white: 0.28) : Color.clear)
@@ -193,6 +204,7 @@ struct BarChartView: View {
                 .padding(2)
                 .background(Color(white: 0.16))
                 .clipShape(Capsule())
+                .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.bottom, 14)
 
@@ -213,6 +225,7 @@ struct BarChartView: View {
             )
         }
         .padding(14)
+        .frame(maxWidth: .infinity)
         .background(Color(white: 0.09))
         .cornerRadius(4)
         .overlay(
@@ -232,8 +245,18 @@ private struct ChartContent: View {
     let maxActiveMinutes: Double
     let labelInterval: Int
 
+    private let yAxisWidth: CGFloat = 44
+    private let chartAxisGap: CGFloat = 6
+    private let xLabelWidth: CGFloat = 46
+
     @State private var hoveredIndex: Int?
     @State private var scroll = ScrollWatcher()
+
+    private var visibleLabelIndices: [Int] {
+        guard !data.isEmpty else { return [] }
+        let interval = max(labelInterval, 1)
+        return Array(stride(from: 0, to: data.count, by: interval))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -254,15 +277,16 @@ private struct ChartContent: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Color(white: 0.38))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.55)
                     Spacer()
                     Text("0")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Color(white: 0.38))
                         .lineLimit(1)
                 }
-                .frame(width: 44)
+                .frame(width: yAxisWidth)
                 .frame(height: 150)
+                .clipped()
 
                 // Bars
                 HStack(alignment: .bottom, spacing: 2) {
@@ -272,6 +296,7 @@ private struct ChartContent: View {
                             case .token:
                                 let inputH = CGFloat(bar.input) / CGFloat(maxTotal) * 150
                                 let outputH = CGFloat(bar.output) / CGFloat(maxTotal) * 150
+                                let cachedH = CGFloat(bar.cached) / CGFloat(maxTotal) * 150
                                 // Output (top, white)
                                 Rectangle()
                                     .fill(Color.white.opacity(0.9))
@@ -281,6 +306,9 @@ private struct ChartContent: View {
                                 Rectangle()
                                     .fill(Color(white: 0.5))
                                     .frame(height: inputH)
+                                Rectangle()
+                                    .fill(Color(white: 0.24))
+                                    .frame(height: cachedH)
                             case .cost:
                                 let costH = CGFloat(bar.cost) / CGFloat(maxCost) * 150
                                 Rectangle()
@@ -299,6 +327,7 @@ private struct ChartContent: View {
                         .frame(height: 150, alignment: .bottom)
                     }
                 }
+                .frame(minWidth: 0, maxWidth: .infinity)
                 .overlay {
                     GeometryReader { geo in
                         // ONE hover tracking area for the whole bar strip
@@ -329,7 +358,8 @@ private struct ChartContent: View {
                             let bar = data[idx]
                             let barW = geo.size.width / CGFloat(data.count)
                             let cx = barW * (CGFloat(idx) + 0.5)
-                            let clampedX = min(max(cx, 80), geo.size.width - 80)
+                            let tooltipInset = min(CGFloat(80), max(geo.size.width / 2, 0))
+                            let clampedX = min(max(cx, tooltipInset), max(tooltipInset, geo.size.width - tooltipInset))
 
                             tooltip(for: bar)
                                 .position(x: clampedX, y: 40)
@@ -340,30 +370,38 @@ private struct ChartContent: View {
             }
 
             // X-axis
-            HStack(spacing: 2) {
+            HStack(spacing: 0) {
                 Rectangle()
                     .fill(.clear)
-                    .frame(width: 44)
+                    .frame(width: yAxisWidth)
                 Rectangle()
                     .fill(.clear)
-                    .frame(width: 6)
-                ForEach(Array(data.enumerated()), id: \.element.id) { index, bar in
-                    Group {
-                        if index % labelInterval == 0 {
-                            Text(isHourly ? Formatters.formatHourShort(bar.id) : Formatters.formatDateShort(bar.id))
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color(white: 0.5))
-                                .lineLimit(1)
-                                .fixedSize()
-                        } else {
-                            Text("")
+                    .frame(width: chartAxisGap)
+                GeometryReader { geo in
+                    ZStack(alignment: .topLeading) {
+                        ForEach(visibleLabelIndices, id: \.self) { index in
+                            if data.indices.contains(index) {
+                                let bar = data[index]
+                                Text(isHourly ? Formatters.formatHourShort(bar.id) : Formatters.formatDateShort(bar.id))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color(white: 0.5))
+                                    .lineLimit(1)
+                                    .frame(width: xLabelWidth, alignment: .center)
+                                    .position(
+                                        x: xLabelX(for: index, plotWidth: geo.size.width),
+                                        y: 8
+                                    )
+                            }
                         }
                     }
-                    .frame(maxWidth: .infinity)
+                    .clipped()
                 }
+                .frame(height: 16)
             }
             .padding(.top, 8)
         }
+        .animation(.easeInOut(duration: 0.3), value: data)
+        .animation(.easeInOut(duration: 0.25), value: chartMode)
         .onAppear { scroll.start() }
         .onDisappear { scroll.stop() }
         .onChange(of: scroll.isScrolling) { _, scrolling in
@@ -371,6 +409,13 @@ private struct ChartContent: View {
             // frozen over the moving content until the gesture ends.
             if scrolling, hoveredIndex != nil { hoveredIndex = nil }
         }
+    }
+
+    private func xLabelX(for index: Int, plotWidth: CGFloat) -> CGFloat {
+        guard !data.isEmpty, plotWidth > 0 else { return 0 }
+        let raw = plotWidth * (CGFloat(index) + 0.5) / CGFloat(data.count)
+        let inset = min(xLabelWidth / 2, plotWidth / 2)
+        return min(max(raw, inset), max(inset, plotWidth - inset))
     }
 
     @ViewBuilder
@@ -389,6 +434,10 @@ private struct ChartContent: View {
                         .foregroundStyle(Color(white: 0.5))
                     Text("输出: \(Formatters.formatNumber(bar.output))")
                         .foregroundStyle(Color(white: 0.5))
+                }
+                if bar.cached > 0 {
+                    Text("缓存: \(Formatters.formatNumber(bar.cached))")
+                        .foregroundStyle(Color(white: 0.45))
                 }
                 Text("费用: \(Formatters.formatCost(bar.cost))")
                     .foregroundStyle(Color(red: 0.2, green: 0.8, blue: 0.5))

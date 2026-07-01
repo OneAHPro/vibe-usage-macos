@@ -17,9 +17,10 @@ struct UsageBucket: Codable, Identifiable, Equatable {
     let totalTokens: Int
     let estimatedCost: Double?
 
-    /// Non-cached total (input + output + reasoning)
+    /// Total token volume, matching the web dashboard and ccusage-style totals:
+    /// input + output + reasoning + cached input.
     var computedTotal: Int {
-        inputTokens + outputTokens + reasoningOutputTokens
+        inputTokens + outputTokens + reasoningOutputTokens + cachedInputTokens
     }
 
     /// Date parsed from bucketStart ISO string

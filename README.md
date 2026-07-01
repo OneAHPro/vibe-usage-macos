@@ -1,6 +1,6 @@
 # Vibe Usage
 
-macOS 菜单栏应用，自动追踪 AI 编程工具的 Token 用量和费用。数据同步到 [vibecafe.ai/usage](https://vibecafe.ai/usage)。
+macOS 应用，自动追踪 AI 编程工具的 Token 用量和费用。App 同时显示在 Dock 和菜单栏；数据同步到 [vibecafe.ai/usage](https://vibecafe.ai/usage)。
 
 <table align="center">
   <tr>
@@ -21,10 +21,11 @@ macOS 菜单栏应用，自动追踪 AI 编程工具的 Token 用量和费用。
 
 ## 功能
 
-- 菜单栏常驻，后台每 5 分钟自动同步数据
-- 弹出窗口查看费用、Token 用量、趋势图表
+- Dock + 菜单栏常驻，点击任一入口都能打开用量面板
+- 后台每 30 分钟自动同步数据，也可手动「更新数据」
+- 弹出窗口查看费用、总 Token、缓存 Token、趋势图表
 - **订阅配额监控**：本地读取 Codex / Claude 的 5 小时 / 7 天 token 配额，悬停查看消耗 vs 时间对比
-- 支持按日期 / 终端 / 工具 / 模型 / 项目筛选
+- 支持今天 / 24H / 7D / 30D / 90D / 自定义日期，以及终端 / 工具 / 模型 / 项目筛选
 - 可在菜单栏显示今日费用和 Token 数
 - 支持开机自启动
 

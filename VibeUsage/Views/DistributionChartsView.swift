@@ -18,7 +18,7 @@ struct DistributionChartsView: View {
 
     var body: some View {
         let data = filtered
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], alignment: .leading, spacing: 10) {
+        LazyVGrid(columns: [GridItem(.flexible(minimum: 0), spacing: 10), GridItem(.flexible(minimum: 0), spacing: 10)], alignment: .leading, spacing: 10) {
             DonutCardView(
                 title: "终端分布",
                 icon: "desktopcomputer",
@@ -40,6 +40,7 @@ struct DistributionChartsView: View {
                 slices: aggregate(data, by: \.project)
             )
         }
+        .animation(.easeInOut(duration: 0.28), value: data.count)
     }
 
     private func aggregate(_ buckets: [UsageBucket], by keyPath: KeyPath<UsageBucket, String>) -> [SliceData] {
@@ -93,11 +94,12 @@ struct DistributionChartsView: View {
 // MARK: - Data
 
 struct SliceData: Identifiable {
-    let id = UUID()
     let label: String
     let tokens: Int
     let cost: Double
     let color: Color
+
+    var id: String { label }
 }
 
 enum MetricMode {
@@ -133,12 +135,17 @@ private struct DonutCardView: View {
                     Image(systemName: icon)
                         .font(.system(size: 11))
                         .foregroundStyle(Color(white: 0.5))
+                        .frame(width: 13)
                     Text(title)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color(white: 0.63))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 Spacer()
                 MetricToggleView(mode: $mode)
+                    .layoutPriority(1)
             }
 
             if slices.isEmpty || total == 0 {
@@ -163,13 +170,19 @@ private struct DonutCardView: View {
                                     .foregroundStyle(Color(white: 0.7))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
+                                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                                 Spacer(minLength: 4)
                                 Text(valueText(slice))
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(Color(white: 0.55))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.65)
+                                    .frame(minWidth: 32, maxWidth: 58, alignment: .trailing)
                                 Text(percentage(slice))
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(Color(white: 0.38))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.65)
                                     .frame(width: 42, alignment: .trailing)
                             }
                         }
@@ -178,10 +191,11 @@ private struct DonutCardView: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(white: 0.09))
         .cornerRadius(4)
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+        .animation(.easeInOut(duration: 0.28), value: slices.map { "\($0.label):\($0.tokens):\($0.cost)" }.joined(separator: "|"))
     }
 
     private func valueText(_ slice: SliceData) -> String {
@@ -222,6 +236,8 @@ private struct MetricToggleView: View {
             Text(m.label)
                 .font(.system(size: 11, weight: mode == m ? .medium : .regular))
                 .foregroundStyle(mode == m ? .white : Color(white: 0.5))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
                 .background(mode == m ? Color(white: 0.28) : Color.clear)

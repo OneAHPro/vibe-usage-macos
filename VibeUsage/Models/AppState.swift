@@ -88,6 +88,15 @@ final class AppState {
     var sessions: [UsageSession] = []
     var hasAnyData: Bool = false
     var isLoadingData: Bool = false
+    var hasLoadedUsageData: Bool = false
+
+    var isInitialDataLoad: Bool {
+        isLoadingData && !hasLoadedUsageData && buckets.isEmpty
+    }
+
+    var isRefreshingData: Bool {
+        isLoadingData && hasLoadedUsageData
+    }
 
     // MARK: - Dashboard Controls
     var timeRange: TimeRange = .oneDay
@@ -187,7 +196,7 @@ final class AppState {
     }
 
     var menuBarTokens: Int {
-        menuBarBuckets.reduce(0) { $0 + $1.computedTotal + $1.cachedInputTokens }
+        menuBarBuckets.reduce(0) { $0 + $1.computedTotal }
     }
     // MARK: - Services (initialized after launch)
     private var syncScheduler: SyncScheduler?
@@ -266,23 +275,28 @@ final class AppState {
 
     func fetchUsageData() async {
         guard let config, let apiKey = config.apiKey else { return }
+        guard !isLoadingData else { return }
         isLoadingData = true
+        defer {
+            lastFetchTime = Date()
+            hasLoadedUsageData = true
+            isLoadingData = false
+        }
 
         let apiUrl = config.apiUrl ?? AppConfig.defaultApiUrl
         let client = APIClient(baseURL: apiUrl, apiKey: apiKey)
 
         do {
             let response = try await client.fetchUsage(range: currentQueryRange)
-            buckets = response.buckets
-            sessions = response.sessions ?? []
-            hasAnyData = response.hasAnyData
+            withAnimation(.easeInOut(duration: 0.25)) {
+                buckets = response.buckets
+                sessions = response.sessions ?? []
+                hasAnyData = response.hasAnyData
+            }
         } catch {
             // Silently fail — dashboard shows stale data or empty state
             print("Failed to fetch usage data: \(error)")
         }
-
-        lastFetchTime = Date()
-        isLoadingData = false
     }
 
     /// Fetch dashboard data unless we already fetched within the last 60s.

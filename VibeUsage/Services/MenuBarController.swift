@@ -196,11 +196,24 @@ final class MenuBarController: NSObject {
         if panel?.isVisible == true {
             closePanel()
         } else {
-            openPanel()
+            presentPanel()
         }
     }
 
     // MARK: - Panel lifecycle
+
+    func presentPanel() {
+        guard !isAnimating else { return }
+        if let panel, panel.isVisible {
+            positionPanel(panel)
+            ActivationCoordinator.shared.popupDidOpen()
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            installEventMonitors()
+            return
+        }
+        openPanel()
+    }
 
     private func openPanel() {
         guard !isAnimating else { return }
@@ -215,9 +228,8 @@ final class MenuBarController: NSObject {
         Task { await appState.refreshCodexRateLimitIfNeeded() }
         Task { await appState.refreshClaudeRateLimitIfNeeded() }
 
-        // Bump activation policy so TextFields (unconfigured screen) receive keys.
-        // ActivationCoordinator reconciles .regular/.accessory/.prohibited based
-        // on whether Settings is also visible — avoids clobbering Settings state.
+        // Keep activation policy reconciliation centralized. The app is
+        // Dock-regular by default, and this call records popup visibility.
         ActivationCoordinator.shared.popupDidOpen()
         NSApp.activate(ignoringOtherApps: true)
 

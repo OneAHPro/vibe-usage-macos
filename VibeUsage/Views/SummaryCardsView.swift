@@ -4,7 +4,9 @@ struct SummaryCardsView: View {
     @Environment(AppState.self) private var appState
 
     private var filtered: [UsageBucket] {
-        appState.buckets.filter { bucket in
+        let cutoff = appState.timeRange.startCutoff
+        return appState.buckets.filter { bucket in
+            if let cutoff, let date = bucket.date, date < cutoff { return false }
             let f = appState.filters
             if !f.sources.isEmpty && !f.sources.contains(bucket.source) { return false }
             if !f.models.isEmpty && !f.models.contains(bucket.model) { return false }
@@ -22,6 +24,10 @@ struct SummaryCardsView: View {
         filtered.reduce(0) { $0 + $1.computedTotal }
     }
 
+    private var totalCachedInputTokens: Int {
+        filtered.reduce(0) { $0 + $1.cachedInputTokens }
+    }
+
     private var filteredSessions: [UsageSession] {
         appState.filteredSessions
     }
@@ -30,22 +36,18 @@ struct SummaryCardsView: View {
         filteredSessions.reduce(0) { $0 + $1.activeSeconds }
     }
 
-    private var totalDurationSeconds: Int {
-        filteredSessions.reduce(0) { $0 + $1.durationSeconds }
-    }
-
-    private var sessionCount: Int {
-        filteredSessions.count
-    }
-
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             StatCard(label: "预估费用", value: Formatters.formatCost(totalCost), color: Color(red: 0.2, green: 0.8, blue: 0.5))
             StatCard(label: "总 Token", value: Formatters.formatNumber(totalTokens))
+            StatCard(label: "缓存 Token", value: Formatters.formatNumber(totalCachedInputTokens))
             StatCard(label: "活跃时长", value: Formatters.formatDuration(totalActiveSeconds), color: Color(red: 0.38, green: 0.6, blue: 1.0))
-            StatCard(label: "总时长", value: Formatters.formatDuration(totalDurationSeconds))
-            StatCard(label: "会话数", value: "\(sessionCount)")
         }
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.28), value: totalCost)
+        .animation(.easeInOut(duration: 0.28), value: totalTokens)
+        .animation(.easeInOut(duration: 0.28), value: totalCachedInputTokens)
+        .animation(.easeInOut(duration: 0.28), value: totalActiveSeconds)
     }
 }
 
@@ -54,20 +56,32 @@ private struct StatCard: View {
     let value: String
     var color: Color = .white
 
+    // Reserve fixed line-box heights so all cards render at exactly the same height,
+    // even when minimumScaleFactor shrinks the value glyphs in narrower columns.
+    private let labelHeight: CGFloat = 14   // 12pt font
+    private let valueHeight: CGFloat = 24   // 20pt font
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(label)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .foregroundStyle(Color(white: 0.63))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.85)
+                .frame(height: labelHeight, alignment: .leading)
             Text(value)
-                .font(.system(size: 18, weight: .bold, design: .monospaced))
+                .font(.system(size: 20, weight: .bold, design: .monospaced))
                 .foregroundStyle(color)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
+                .frame(maxWidth: .infinity, minHeight: valueHeight, maxHeight: valueHeight, alignment: .leading)
+                .clipped()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 12)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 13)
         .background(Color(white: 0.09))
         .cornerRadius(4)
         .overlay(

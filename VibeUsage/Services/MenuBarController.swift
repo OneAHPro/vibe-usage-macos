@@ -56,7 +56,6 @@ final class MenuBarController: NSObject {
     private let statusItem: NSStatusItem
     private var hostingView: PassthroughHostingView<MenuBarLabel>!
     private var panel: PopoverPanel?
-    private var hostingController: NSHostingController<AnyView>?
     private var globalEventMonitor: Any?
     private var localEventMonitor: Any?
     private var isAnimating = false
@@ -86,6 +85,37 @@ final class MenuBarController: NSObject {
         // bring it to the front through standard z-ordering.
         ActivationCoordinator.shared.onSettingsVisibilityChange = { [weak self] visible in
             self?.panel?.level = visible ? .normal : .popUpMenu
+        }
+
+        // Sparkle's update window is a normal-level window; while it's up,
+        // lower our `.popUpMenu` panel to `.normal` so the update dialog isn't
+        // buried under the still-open popover. Restore on dismissal.
+        ActivationCoordinator.shared.onUpdateModalVisibilityChange = { [weak self] showing in
+            self?.panel?.level = showing ? .normal : .popUpMenu
+        }
+
+        // When macOS Screenshot.app (⌘⇧3/4/5) or any screen-capture UI activates,
+        // close the popover. Our `.popUpMenu` panel sits above the screenshot
+        // overlay, which (a) blocks the user from screenshotting whatever is
+        // behind it and (b) prevents the interactive region/window selector
+        // from targeting our window properly. Letting the popover dismiss
+        // matches the "get out of the way" mental model users have when they
+        // start a screenshot.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleAppActivation(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleAppActivation(_ note: Notification) {
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              let bundleID = app.bundleIdentifier else { return }
+        // com.apple.screencaptureui covers ⌘⇧3/4/5 and the Screenshot.app menu;
+        // com.apple.ScreenSaver.Engine is unrelated but cheap to ignore here.
+        if bundleID == "com.apple.screencaptureui" {
+            closePanel()
         }
     }
 
@@ -166,11 +196,24 @@ final class MenuBarController: NSObject {
         if panel?.isVisible == true {
             closePanel()
         } else {
-            openPanel()
+            presentPanel()
         }
     }
 
     // MARK: - Panel lifecycle
+
+    func presentPanel() {
+        guard !isAnimating else { return }
+        if let panel, panel.isVisible {
+            positionPanel(panel)
+            ActivationCoordinator.shared.popupDidOpen()
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            installEventMonitors()
+            return
+        }
+        openPanel()
+    }
 
     private func openPanel() {
         guard !isAnimating else { return }
@@ -179,10 +222,14 @@ final class MenuBarController: NSObject {
         positionPanel(panel)
 
         Task { await appState.fetchUsageDataIfNeeded() }
+        // Popover open refreshes both Codex and Claude — both are silent local
+        // file reads now (no prompts). 60s cooldown so rapid open/close doesn't
+        // re-walk the Codex session tree or re-parse the capture file.
+        Task { await appState.refreshCodexRateLimitIfNeeded() }
+        Task { await appState.refreshClaudeRateLimitIfNeeded() }
 
-        // Bump activation policy so TextFields (unconfigured screen) receive keys.
-        // ActivationCoordinator reconciles .regular/.accessory/.prohibited based
-        // on whether Settings is also visible — avoids clobbering Settings state.
+        // Keep activation policy reconciliation centralized. The app is
+        // Dock-regular by default, and this call records popup visibility.
         ActivationCoordinator.shared.popupDidOpen()
         NSApp.activate(ignoringOtherApps: true)
 
@@ -204,18 +251,22 @@ final class MenuBarController: NSObject {
     private func ensurePanel() -> PopoverPanel {
         if let panel { return panel }
 
+        // NSHostingView as contentView's subview, pinned by autolayout.
+        // Avoid NSHostingController.contentViewController here: its default intrinsic-size
+        // bridge collapses the panel to 0×0 on Sequoia (pre-layout intrinsic is (0,0)),
+        // and on Tahoe the same bridge feeds a reentrant layout loop that stack-overflows
+        // SwiftUI's ViewGraph renderer. sizingOptions drops .intrinsicContentSize from
+        // NSHostingView's default so it never probes SwiftUI with a 0×0 proposal either.
         let rootView = AnyView(
             PopoverView()
                 .environment(appState)
                 .environmentObject(updaterViewModel)
         )
-        let host = NSHostingController(rootView: rootView)
-        // sizingOptions = [] prevents SwiftUI from overriding the panel size.
-        // preferredContentSize must be set explicitly; otherwise contentViewController
-        // assignment resizes the panel to (0,0) before SwiftUI has laid out.
-        host.sizingOptions = []
-        host.preferredContentSize = NSSize(width: Self.panelWidth, height: Self.panelHeight)
-        hostingController = host
+        let host = NSHostingView(rootView: rootView)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        if #available(macOS 13, *) {
+            host.sizingOptions = [.minSize, .maxSize]
+        }
 
         let panel = PopoverPanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: Self.panelHeight),
@@ -223,9 +274,6 @@ final class MenuBarController: NSObject {
             backing: .buffered,
             defer: false
         )
-        panel.contentViewController = host
-        // Re-assert size after contentViewController may have overridden it.
-        panel.setContentSize(NSSize(width: Self.panelWidth, height: Self.panelHeight))
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -234,8 +282,14 @@ final class MenuBarController: NSObject {
         panel.animationBehavior = .none
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        // Rounded corners on the hosting view's layer so the SwiftUI background gets clipped.
         if let contentView = panel.contentView {
+            contentView.addSubview(host)
+            NSLayoutConstraint.activate([
+                host.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                host.topAnchor.constraint(equalTo: contentView.topAnchor),
+                host.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            ])
             contentView.wantsLayer = true
             contentView.layer?.cornerRadius = 12
             contentView.layer?.masksToBounds = true

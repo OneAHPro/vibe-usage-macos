@@ -1,9 +1,38 @@
 import SwiftUI
 
+private enum FilterDimension: CaseIterable {
+    case hostname
+    case source
+    case model
+    case project
+
+    var icon: String {
+        switch self {
+        case .hostname: "desktopcomputer"
+        case .source: "terminal"
+        case .model: "cpu"
+        case .project: "folder"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .hostname: "终端"
+        case .source: "工具"
+        case .model: "模型"
+        case .project: "项目"
+        }
+    }
+}
+
 struct FilterTagsView: View {
     @Environment(AppState.self) private var appState
-    @State private var showProjects: Bool = UserDefaults.standard.object(forKey: "showProjects") as? Bool ?? false
-    @State private var expandedFamilies: Set<String> = Set()
+    @State private var openFilter: FilterDimension?
+    @State private var expandedModelFamilies: Set<String> = Set()
+    private let filterGap: CGFloat = 8
+    private let filterRowHeight: CGFloat = 28
+    private let dropdownWidth: CGFloat = 240
+    private let dropdownMaxHeight: CGFloat = 260
 
     private var uniqueSources: [String] {
         Array(Set(appState.buckets.map(\.source))).sorted()
@@ -24,258 +53,441 @@ struct FilterTagsView: View {
     var body: some View {
         @Bindable var state = appState
 
-        VStack(alignment: .leading, spacing: 6) {
-            if !uniqueHostnames.isEmpty {
-                filterRow(
-                    icon: "desktopcomputer",
-                    label: "终端",
-                    values: uniqueHostnames,
-                    selected: state.filters.hostnames
-                ) { value in
-                    if state.filters.hostnames.contains(value) {
-                        state.filters.hostnames.remove(value)
-                    } else {
-                        state.filters.hostnames.insert(value)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                timeRangeSelector
+
+                Spacer(minLength: 0)
+
+                if !appState.filters.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            state.filters.clear()
+                        }
+                    } label: {
+                        Text("清除")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(red: 1.0, green: 0.42, blue: 0.42))
+                            .padding(.horizontal, 8)
+                            .frame(height: 28)
                     }
+                    .buttonStyle(.plain)
+                    .help("清除筛选")
                 }
             }
 
-            if !uniqueSources.isEmpty {
-                filterRow(
-                    icon: "terminal",
-                    label: "工具",
-                    values: uniqueSources,
-                    selected: state.filters.sources
-                ) { value in
-                    if state.filters.sources.contains(value) {
-                        state.filters.sources.remove(value)
-                    } else {
-                        state.filters.sources.insert(value)
-                    }
-                }
+            if appState.timeRange == .custom {
+                customRangeControls
             }
 
-            if !uniqueModels.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 10))
-                        Text("模型")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundStyle(Color(white: 0.5))
-                    .frame(width: 44, alignment: .trailing)
-                    .padding(.vertical, 3)
+            filterGrid
+                .zIndex(20)
+        }
+    }
 
-                    FlowLayout(spacing: 4) {
-                        let groups = groupModelsByFamily(uniqueModels)
-                        ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
-                            let familyKey = group.family?.key ?? "other"
-                            let familyLabel = group.family?.label ?? "其他"
-                            let familyModels = Set(group.models)
-                            let selectedInFamily = familyModels.intersection(state.filters.models)
-                            let allSelected = selectedInFamily.count == familyModels.count && !familyModels.isEmpty
-                            let someSelected = !selectedInFamily.isEmpty && !allSelected
-                            let isExpanded = expandedFamilies.contains(familyKey)
+    private var filterGrid: some View {
+        GeometryReader { proxy in
+            let availableWidth = proxy.size.width
+            let count = CGFloat(FilterDimension.allCases.count)
+            let buttonWidth = max((availableWidth - filterGap * (count - 1)) / count, 0)
+            let panelWidth = min(dropdownWidth, max(availableWidth, 0))
 
-                            Button {
-                                if allSelected {
-                                    state.filters.models.subtract(familyModels)
-                                } else {
-                                    state.filters.models.formUnion(familyModels)
-                                }
-                            } label: {
-                                Text(familyLabel)
-                                    .font(.system(size: 11))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(allSelected ? Color.white : (someSelected ? Color(white: 0.25) : Color(white: 0.09)))
-                                    .foregroundStyle(allSelected ? Color.black : (someSelected ? Color.white : Color(white: 0.63)))
-                                    .cornerRadius(4)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .stroke(allSelected ? Color(white: 0.0) : (someSelected ? Color.white.opacity(0.3) : Color(white: 0.16)), lineWidth: 1)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-
-                            HoverChevronButton(isExpanded: isExpanded) {
-                                if isExpanded {
-                                    expandedFamilies.remove(familyKey)
-                                } else {
-                                    expandedFamilies.insert(familyKey)
-                                }
-                            }
-
-                            if isExpanded {
-                                ForEach(group.models, id: \.self) { value in
-                                    let isActive = state.filters.models.contains(value)
-                                    Button {
-                                        if state.filters.models.contains(value) {
-                                            state.filters.models.remove(value)
-                                        } else {
-                                            state.filters.models.insert(value)
-                                        }
-                                    } label: {
-                                        Text(value.isEmpty ? "\u{672A}\u{77E5}" : value)
-                                            .font(.system(size: 11))
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 3)
-                                            .background(isActive ? Color.white : Color(white: 0.09))
-                                            .foregroundStyle(isActive ? Color.black : Color(white: 0.63))
-                                            .cornerRadius(4)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 4)
-                                                    .stroke(Color(white: isActive ? 0.0 : 0.16), lineWidth: 1)
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
+            ZStack(alignment: .topLeading) {
+                HStack(spacing: filterGap) {
+                    ForEach(FilterDimension.allCases, id: \.self) { dimension in
+                        filterButton(for: dimension)
+                            .frame(width: buttonWidth)
                     }
                 }
-            }
+                .frame(width: availableWidth, height: filterRowHeight, alignment: .leading)
 
-            if !uniqueProjects.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 10))
-                        Text("项目")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundStyle(Color(white: 0.5))
-                    .frame(width: 44, alignment: .trailing)
-                    .padding(.vertical, 3)
-
-                    HStack(spacing: 2) {
-                        Button {
-                            showProjects.toggle()
-                            UserDefaults.standard.set(showProjects, forKey: "showProjects")
-                        } label: {
-                            Image(systemName: showProjects ? "eye" : "eye.slash")
-                                .font(.system(size: 9))
-                                .foregroundStyle(Color(white: showProjects ? 0.6 : 0.35))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                                .background(Color(white: 0.09))
-                                .cornerRadius(4)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .stroke(Color(white: 0.16), lineWidth: 1)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .help(showProjects ? "隐藏项目名称" : "显示项目名称")
-
-                        HoverChevronButton(isExpanded: showProjects) {
-                            showProjects.toggle()
-                            UserDefaults.standard.set(showProjects, forKey: "showProjects")
-                        }
-                    }
-
-                    if showProjects {
-                        FlowLayout(spacing: 4) {
-                            ForEach(uniqueProjects, id: \.self) { value in
-                                let isActive = state.filters.projects.contains(value)
-                                Button {
-                                    if state.filters.projects.contains(value) {
-                                        state.filters.projects.remove(value)
-                                    } else {
-                                        state.filters.projects.insert(value)
-                                    }
-                                } label: {
-                                    Text(value.isEmpty ? "未知" : value)
-                                        .font(.system(size: 11))
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(isActive ? Color.white : Color(white: 0.09))
-                                        .foregroundStyle(isActive ? Color.black : Color(white: 0.63))
-                                        .cornerRadius(4)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 4)
-                                                .stroke(Color(white: isActive ? 0.0 : 0.16), lineWidth: 1)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
+                if let openFilter {
+                    filterPanel(for: openFilter)
+                        .frame(width: panelWidth, height: dropdownHeight(for: openFilter))
+                        .offset(
+                            x: dropdownX(for: openFilter, in: availableWidth, panelWidth: panelWidth),
+                            y: filterRowHeight + 6
+                        )
+                        .fixedSize(horizontal: false, vertical: true)
+                        .zIndex(20)
                 }
             }
+        }
+        .frame(height: filterRowHeight)
+    }
 
-            if !appState.filters.isEmpty {
-                Button("清除筛选") {
-                    state.filters.clear()
+    private var timeRangeSelector: some View {
+        HStack(spacing: 1) {
+            ForEach(TimeRange.allCases, id: \.rawValue) { range in
+                let isActive = appState.timeRange == range
+                Button {
+                    guard !appState.isLoadingData, appState.timeRange != range else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        appState.timeRange = range
+                    }
+                    Task { await appState.fetchUsageData() }
+                } label: {
+                    Text(displayLabel(for: range))
+                        .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                        .foregroundStyle(isActive ? Color.white : Color(white: 0.54))
+                        .frame(height: 24)
+                        .padding(.horizontal, 9)
+                        .background(isActive ? Color(white: 0.20) : Color.clear)
+                        .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 11))
-                .foregroundStyle(.red.opacity(0.8))
-                .padding(.leading, 52)
+                .disabled(appState.isLoadingData)
+            }
+        }
+        .padding(2)
+        .background(Color(white: 0.10))
+        .clipShape(Capsule())
+    }
+
+    private var customRangeControls: some View {
+        HStack(spacing: 8) {
+            DatePicker(
+                "",
+                selection: Binding(
+                    get: { appState.customRangeFrom },
+                    set: { appState.customRangeFrom = Calendar.current.startOfDay(for: $0) }
+                ),
+                displayedComponents: .date
+            )
+            .labelsHidden()
+            .datePickerStyle(.compact)
+            .controlSize(.small)
+
+            Text("–")
+                .font(.system(size: 12))
+                .foregroundStyle(Color(white: 0.38))
+
+            DatePicker(
+                "",
+                selection: Binding(
+                    get: { appState.customRangeTo },
+                    set: { appState.customRangeTo = Calendar.current.startOfDay(for: $0) }
+                ),
+                displayedComponents: .date
+            )
+            .labelsHidden()
+            .datePickerStyle(.compact)
+            .controlSize(.small)
+
+            Spacer(minLength: 0)
+
+            Button {
+                Task { await appState.fetchUsageData() }
+            } label: {
+                Text("应用")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(Color.white)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(appState.isLoadingData)
+            .opacity(appState.isLoadingData ? 0.55 : 1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color(white: 0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.14), lineWidth: 1))
+    }
+
+    private func filterButton(for dimension: FilterDimension) -> some View {
+        let enabled = hasValues(for: dimension)
+        let selectedCount = selectedValues(for: dimension).count
+        let isOpen = openFilter == dimension
+        let isActive = selectedCount > 0
+        let summary = summaryText(for: dimension)
+
+        return Button {
+            guard enabled else { return }
+            withAnimation(.easeOut(duration: 0.12)) {
+                openFilter = isOpen ? nil : dimension
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: dimension.icon)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isActive || isOpen ? Color.white : Color(white: 0.58))
+                    .frame(width: 13)
+                    .layoutPriority(1)
+
+                Text(dimension.label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isActive || isOpen ? Color.white : Color(white: 0.66))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .layoutPriority(2)
+
+                Text(summary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(isActive ? Color(white: 0.86) : Color(white: 0.42))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .minimumScaleFactor(0.75)
+                    .layoutPriority(1)
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color(white: 0.38))
+                    .rotationEffect(.degrees(isOpen ? 180 : 0))
+                    .frame(width: 10)
+                    .layoutPriority(1)
+            }
+            .padding(.horizontal, 9)
+            .frame(minWidth: 0, maxWidth: .infinity)
+            .frame(height: filterRowHeight)
+            .background(isActive || isOpen ? Color(white: 0.16) : Color(white: 0.09))
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Color(white: isActive || isOpen ? 0.26 : 0.15), lineWidth: 1))
+            .opacity(enabled ? 1 : 0.45)
+            .clipped()
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    private func filterPanel(for dimension: FilterDimension) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                panelContent(for: dimension)
+                    .padding(.bottom, 2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(height: dropdownScrollHeight(for: dimension))
+        }
+        .padding(.vertical, 4)
+        .background(Color(white: 0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.18), lineWidth: 1))
+        .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 8)
+    }
+
+    private func dropdownX(for dimension: FilterDimension, in width: CGFloat, panelWidth: CGFloat) -> CGFloat {
+        guard width > panelWidth else { return 0 }
+        let index = CGFloat(FilterDimension.allCases.firstIndex(of: dimension) ?? 0)
+        let buttonWidth = (width - filterGap * CGFloat(FilterDimension.allCases.count - 1)) / CGFloat(FilterDimension.allCases.count)
+        let buttonCenter = index * (buttonWidth + filterGap) + buttonWidth / 2
+        let centered = buttonCenter - panelWidth / 2
+        return min(max(0, centered), width - panelWidth)
+    }
+
+    private func dropdownHeight(for dimension: FilterDimension) -> CGFloat {
+        dropdownScrollHeight(for: dimension) + 8
+    }
+
+    private func dropdownScrollHeight(for dimension: FilterDimension) -> CGFloat {
+        min(max(CGFloat(visibleRowCount(for: dimension)) * 28, 28), dropdownMaxHeight - 8)
+    }
+
+    private func visibleRowCount(for dimension: FilterDimension) -> Int {
+        switch dimension {
+        case .hostname:
+            return max(uniqueHostnames.count, 1)
+        case .source:
+            return max(uniqueSources.count, 1)
+        case .project:
+            return max(uniqueProjects.count, 1)
+        case .model:
+            var count = 0
+            for group in groupModelsByFamily(uniqueModels) {
+                let familyKey = group.family?.key ?? "other"
+                count += 1
+                if expandedModelFamilies.contains(familyKey) {
+                    count += group.models.count
+                }
+            }
+            return max(count, 1)
+        }
+    }
+
+    @ViewBuilder
+    private func panelContent(for dimension: FilterDimension) -> some View {
+        switch dimension {
+        case .hostname:
+            optionFlow(values: uniqueHostnames, selected: appState.filters.hostnames) { value in
+                toggle(value, in: &appState.filters.hostnames)
+            }
+        case .source:
+            optionFlow(values: uniqueSources, selected: appState.filters.sources) { value in
+                toggle(value, in: &appState.filters.sources)
+            }
+        case .model:
+            modelOptions
+        case .project:
+            optionFlow(values: uniqueProjects, selected: appState.filters.projects) { value in
+                toggle(value, in: &appState.filters.projects)
             }
         }
     }
 
-    private func filterRow(
-        icon: String,
-        label: String,
-        values: [String],
-        selected: Set<String>,
-        masked: Bool = false,
-        eyeToggle: (() -> Void)? = nil,
-        toggle: @escaping (String) -> Void
-    ) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
-                Text(label)
-                    .font(.system(size: 11))
-            }
-            .foregroundStyle(Color(white: 0.5))
-            .frame(width: 44, alignment: .trailing)
-            .padding(.vertical, 3) // match tag vertical padding for baseline alignment
-
-            if let eyeToggle {
-                Button {
-                    eyeToggle()
-                } label: {
-                    Image(systemName: masked ? "eye.slash" : "eye")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Color(white: masked ? 0.35 : 0.6))
-                        .frame(height: 11 + 6) // match tag height (font 11 + padding 3*2)
+    private func optionFlow(values: [String], selected: Set<String>, toggle: @escaping (String) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(values, id: \.self) { value in
+                optionRow(title: value.isEmpty ? "未知" : value, isSelected: selected.contains(value)) {
+                    toggle(value)
                 }
-                .buttonStyle(.plain)
-                .help(masked ? "\u{663E}\u{793A}\u{9879}\u{76EE}\u{540D}\u{79F0}" : "\u{9690}\u{85CF}\u{9879}\u{76EE}\u{540D}\u{79F0}")
             }
+        }
+    }
 
-            FlowLayout(spacing: 4) {
-                ForEach(values, id: \.self) { value in
-                    let isActive = selected.contains(value)
-                    Button {
-                        toggle(value)
-                    } label: {
-                        Text(masked ? "\u{2022}\u{2022}\u{2022}" : (value.isEmpty ? "\u{672A}\u{77E5}" : value))
-                            .font(.system(size: 11))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(isActive ? Color.white : Color(white: 0.09))
-                            .foregroundStyle(isActive ? Color.black : Color(white: 0.63))
-                            .cornerRadius(4)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(Color(white: isActive ? 0.0 : 0.16), lineWidth: 1)
+    private var modelOptions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(groupModelsByFamily(uniqueModels).enumerated()), id: \.offset) { _, group in
+                let familyKey = group.family?.key ?? "other"
+                let familyLabel = group.family?.label ?? "其他"
+                let familyModels = Set(group.models)
+                let selectedInFamily = familyModels.intersection(appState.filters.models)
+                let allSelected = selectedInFamily.count == familyModels.count && !familyModels.isEmpty
+                let someSelected = !selectedInFamily.isEmpty && !allSelected
+                let isExpanded = expandedModelFamilies.contains(familyKey)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 0) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                if allSelected {
+                                    appState.filters.models.subtract(familyModels)
+                                } else {
+                                    appState.filters.models.formUnion(familyModels)
+                                }
+                            }
+                        } label: {
+                            checkRowContent(
+                                title: familyLabel,
+                                isSelected: allSelected,
+                                isMixed: someSelected
                             )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            withAnimation(.easeOut(duration: 0.16)) {
+                                if isExpanded {
+                                    expandedModelFamilies.remove(familyKey)
+                                } else {
+                                    expandedModelFamilies.insert(familyKey)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(Color(white: 0.38))
+                                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+
+                    if isExpanded {
+                        ForEach(group.models, id: \.self) { value in
+                            optionRow(title: value.isEmpty ? "未知" : value, isSelected: appState.filters.models.contains(value), indent: 19) {
+                                toggle(value, in: &appState.filters.models)
+                            }
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    private func optionRow(title: String, isSelected: Bool, indent: CGFloat = 0, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            checkRowContent(title: title, isSelected: isSelected, indent: indent)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func checkRowContent(title: String, isSelected: Bool, isMixed: Bool = false, indent: CGFloat = 0) -> some View {
+        HStack(spacing: 7) {
+            HStack(spacing: 7) {
+                checkbox(isSelected: isSelected, isMixed: isMixed)
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(isSelected || isMixed ? Color.white : Color(white: 0.62))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.leading, indent)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .frame(maxWidth: .infinity)
+        .background(Color(white: isSelected || isMixed ? 0.10 : 0.06))
+    }
+
+    private func checkbox(isSelected: Bool, isMixed: Bool = false) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(isSelected || isMixed ? Color.white : Color.clear)
+                .frame(width: 13, height: 13)
+                .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color(white: 0.38), lineWidth: isSelected || isMixed ? 0 : 1))
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color.black)
+            } else if isMixed {
+                Rectangle()
+                    .fill(Color.black)
+                    .frame(width: 7, height: 1.5)
+            }
+        }
+    }
+
+    private func hasValues(for dimension: FilterDimension) -> Bool {
+        switch dimension {
+        case .hostname: !uniqueHostnames.isEmpty
+        case .source: !uniqueSources.isEmpty
+        case .model: !uniqueModels.isEmpty
+        case .project: !uniqueProjects.isEmpty
+        }
+    }
+
+    private func selectedValues(for dimension: FilterDimension) -> Set<String> {
+        switch dimension {
+        case .hostname: appState.filters.hostnames
+        case .source: appState.filters.sources
+        case .model: appState.filters.models
+        case .project: appState.filters.projects
+        }
+    }
+
+    private func summaryText(for dimension: FilterDimension) -> String {
+        let selectedCount = selectedValues(for: dimension).count
+        return selectedCount == 0 ? "全部" : "\(selectedCount) 项"
+    }
+
+    private func toggle(_ value: String, in set: inout Set<String>) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if set.contains(value) {
+                set.remove(value)
+            } else {
+                set.insert(value)
+            }
+        }
+    }
+
+    private func displayLabel(for range: TimeRange) -> String {
+        switch range {
+        case .today: return "今天"
+        case .oneDay: return "24H"
+        case .custom: return "自定义"
+        default: return range.rawValue
         }
     }
 }
 
-/// Simple flow layout that wraps items to the next line
+/// Simple flow layout that wraps items to the next line.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 4
 
@@ -316,26 +528,5 @@ struct FlowLayout: Layout {
         }
 
         return (positions, CGSize(width: maxX, height: y + rowHeight))
-    }
-}
-
-struct HoverChevronButton: View {
-    let isExpanded: Bool
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: isExpanded ? "chevron.left" : "chevron.right")
-                .font(.system(size: 8))
-                .foregroundStyle(isHovered ? Color.white : Color(white: 0.38))
-                .frame(height: 17)
-                .padding(.horizontal, 4)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
     }
 }

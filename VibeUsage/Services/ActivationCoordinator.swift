@@ -3,16 +3,12 @@ import AppKit
 /// Centralizes `NSApplication.activationPolicy` management across the menu-bar
 /// popup and the Settings window.
 ///
-/// Each surface has different needs:
-///   - Popup: `.accessory` so TextFields can receive key events.
-///   - Settings: `.regular` so the window behaves like a normal app window
-///     (click-to-front, Cmd-Tab, proper key handling).
-///   - Neither: `.prohibited` (true LSUIElement state).
+/// Vibe Usage is now a regular Dock app while still keeping its menu-bar item,
+/// so the lowest policy is `.regular`. The coordinator still owns the call site
+/// so popup/settings transitions cannot fight each other.
 ///
 /// Without coordination, one surface closing would reset the policy to
-/// `.prohibited` even while the other was still visible — in particular, closing
-/// the popup would drop the app out of `.regular`, which AppKit treats as a
-/// request to tear down the Settings window along with it.
+/// a lower state while the other was still visible.
 @MainActor
 final class ActivationCoordinator {
     static let shared = ActivationCoordinator()
@@ -24,6 +20,13 @@ final class ActivationCoordinator {
     /// to lower the popup's window level while Settings is visible, so standard
     /// z-ordering lets Settings come to the front on click.
     var onSettingsVisibilityChange: ((Bool) -> Void)?
+
+    /// Invoked while Sparkle is showing its modal update window. `true` =
+    /// about to show (lower the popup so Sparkle's normal-level window isn't
+    /// buried under the `.popUpMenu` panel), `false` = dismissed (restore).
+    /// We deliberately do NOT close the popup — it stays open behind/around
+    /// the update dialog, just no longer on top of it.
+    var onUpdateModalVisibilityChange: ((Bool) -> Void)?
 
     private init() {}
 
@@ -52,14 +55,7 @@ final class ActivationCoordinator {
     }
 
     private func reconcile() {
-        let policy: NSApplication.ActivationPolicy
-        if settingsVisible {
-            policy = .regular
-        } else if popupVisible {
-            policy = .accessory
-        } else {
-            policy = .prohibited
-        }
+        let policy: NSApplication.ActivationPolicy = .regular
         if NSApp.activationPolicy() != policy {
             NSApp.setActivationPolicy(policy)
         }

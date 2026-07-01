@@ -4,13 +4,17 @@ import SwiftUI
 struct PopoverView: View {
     @Environment(AppState.self) private var appState
     @EnvironmentObject var updaterViewModel: UpdaterViewModel
-    @State private var setupApiKey = ""
-    @State private var isValidatingKey = false
+    @State private var deviceFlowState: DeviceFlowUIState = .idle
+    @State private var pendingUserCode: String?
     @State private var setupError: String?
+    @State private var deviceFlowTask: Task<Void, Never>?
+
+    enum DeviceFlowUIState {
+        case idle
+        case awaitingApproval
+    }
 
     var body: some View {
-        @Bindable var state = appState
-
         VStack(spacing: 0) {
             if !appState.isConfigured {
                 unconfiguredView
@@ -29,11 +33,11 @@ struct PopoverView: View {
             // Title
             HStack(spacing: 6) {
                 Text("Vibe Usage")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                 if AppConfig.isDev {
                     Text("DEBUG")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(.orange)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -49,92 +53,150 @@ struct PopoverView: View {
                 .background(Color(white: 0.16))
 
             VStack(alignment: .leading, spacing: 16) {
-                // API Key input
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 0) {
-                        Text("粘贴 API Key")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white)
-                        Spacer()
-                        Button {
-                            if let url = URL(string: "\(AppConfig.defaultApiUrl)/usage/setup") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        } label: {
-                            HStack(spacing: 3) {
-                                Text("获取 Key")
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 8))
-                            }
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color(red: 0.4, green: 0.6, blue: 1.0))
-                        }
-                        .buttonStyle(.plain)
+                if let pendingUserCode {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color(white: 0.5))
+                        Text("请确认浏览器中显示的验证码与下方一致")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color(white: 0.7))
                     }
-                    TextField("vbu_...", text: $setupApiKey)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.white)
-                        .padding(8)
-                        .background(Color(white: 0.08))
-                        .cornerRadius(4)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(white: 0.06))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+                    .cornerRadius(4)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("验证码")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Color(white: 0.5))
+                            .textCase(.uppercase)
+                        Text(pendingUserCode)
+                            .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .tracking(3)
+                    }
                 }
 
-                // Error
                 if let setupError {
                     Text(setupError)
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                         .foregroundStyle(.red)
                 }
 
-                // CTA
                 Button {
-                    Task { await validateAndSaveKey() }
+                    let task = Task { await runDeviceFlow() }
+                    deviceFlowTask = task
                 } label: {
                     HStack(spacing: 6) {
-                        if isValidatingKey {
+                        if deviceFlowState == .awaitingApproval {
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(.black)
                         }
-                        Text(isValidatingKey ? "验证中..." : "开始使用")
-                            .font(.system(size: 12, weight: .medium))
+                        Text(deviceFlowState == .awaitingApproval ? "等待浏览器确认…" : "登录并链接数据")
+                            .font(.system(size: 13, weight: .medium))
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 8)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.white)
                 .foregroundStyle(.black)
-                .disabled(setupApiKey.isEmpty || !setupApiKey.hasPrefix("vbu_") || isValidatingKey)
+                .disabled(deviceFlowState == .awaitingApproval)
+
+                if deviceFlowState == .awaitingApproval {
+                    Button {
+                        cancelDeviceFlow()
+                    } label: {
+                        Text("取消，重新开始")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(white: 0.6))
+                }
             }
             .padding(16)
         }
     }
 
 
-    private func validateAndSaveKey() async {
+    private func runDeviceFlow() async {
         setupError = nil
-        isValidatingKey = true
-        defer { isValidatingKey = false }
+        deviceFlowState = .awaitingApproval
+        pendingUserCode = nil
+        defer { deviceFlowState = .idle }
 
-        let client = APIClient(baseURL: AppConfig.defaultApiUrl, apiKey: setupApiKey)
+        let baseURL = AppConfig.defaultApiUrl
+        let hostname = Host.current().localizedName?.replacingOccurrences(of: ".local", with: "")
+        let device: DeviceCodeResponse
         do {
-            let response = try await client.validateKeyAndFetch()
-            // Key valid — save config, load data, show dashboard
-            appState.configure(apiKey: setupApiKey, apiUrl: AppConfig.defaultApiUrl)
-            appState.buckets = response.buckets
-            appState.hasAnyData = response.hasAnyData
-        } catch let error as APIClient.APIError {
-            if case .unauthorized = error {
-                setupError = "API Key 无效，请检查后重试"
-            } else {
-                setupError = "网络错误: \(error.localizedDescription)"
-            }
+            device = try await requestDeviceCode(baseURL: baseURL, clientName: "Vibe Usage.app", hostname: hostname)
         } catch {
-            setupError = "验证失败: \(error.localizedDescription)"
+            setupError = "无法连接服务端：\(error.localizedDescription)"
+            return
         }
+
+        pendingUserCode = device.userCode
+        if let url = URL(string: device.verificationUriComplete) {
+            NSWorkspace.shared.open(url)
+        }
+
+        let intervalNs = UInt64(max(device.interval, 1)) * 1_000_000_000
+        let deadline = Date().addingTimeInterval(TimeInterval(device.expiresIn))
+
+        while Date() < deadline {
+            if Task.isCancelled { return }
+            try? await Task.sleep(nanoseconds: intervalNs)
+            if Task.isCancelled { return }
+            let res: DevicePollResponse
+            do {
+                res = try await pollDeviceCode(baseURL: baseURL, deviceCode: device.deviceCode)
+            } catch {
+                continue
+            }
+            if let apiKey = res.apiKey {
+                pendingUserCode = nil
+                appState.configure(apiKey: apiKey, apiUrl: res.apiUrl ?? baseURL)
+                await appState.fetchUsageData()
+                return
+            }
+            switch res.error {
+            case "authorization_pending", nil:
+                continue
+            case "access_denied":
+                setupError = DeviceFlowError.denied.localizedDescription
+                pendingUserCode = nil
+                return
+            case "expired_token":
+                setupError = DeviceFlowError.expired.localizedDescription
+                pendingUserCode = nil
+                return
+            default:
+                setupError = "服务端返回未知错误：\(res.error ?? "unknown")"
+                pendingUserCode = nil
+                return
+            }
+        }
+        setupError = DeviceFlowError.expired.localizedDescription
+        pendingUserCode = nil
+    }
+
+    /// Abort an in-flight device flow so the user can re-link immediately
+    /// instead of waiting out the 15-minute timeout. Cancelling the task makes
+    /// runDeviceFlow() return at its next checkpoint; its `defer` resets the
+    /// UI state back to idle.
+    private func cancelDeviceFlow() {
+        deviceFlowTask?.cancel()
+        deviceFlowTask = nil
+        pendingUserCode = nil
+        setupError = nil
+        deviceFlowState = .idle
     }
 
     // MARK: - Dashboard
@@ -152,19 +214,23 @@ struct PopoverView: View {
 
             // Scrollable content
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if appState.isLoadingData && appState.buckets.isEmpty {
-                        loadingView
+                VStack(alignment: .leading, spacing: 14) {
+                    if appState.isInitialDataLoad || (!appState.hasLoadedUsageData && appState.buckets.isEmpty) {
+                        RateLimitCardView()
+                            .zIndex(1)
+                        Divider()
+                            .background(Color(white: 0.16))
+                            .padding(.vertical, 2)
+                        loadingDashboardView
                     } else if !appState.hasAnyData {
+                        RateLimitCardView()
                         emptyStateView
                     } else {
-                        FilterTagsView()
-                        SummaryCardsView()
-                        BarChartView()
-                        DistributionChartsView()
+                        dashboardContent
                     }
                 }
                 .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(height: 560)
 
@@ -178,19 +244,45 @@ struct PopoverView: View {
         }
     }
 
+    private var dashboardContent: some View {
+        ZStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Rate-limit row gets its own block separated from the usage
+                // dashboard by a divider so quota and consumption stats stay distinct.
+                RateLimitCardView()
+                    .zIndex(1)
+                Divider()
+                    .background(Color(white: 0.16))
+                    .padding(.vertical, 2)
+                FilterTagsView()
+                    .zIndex(10)
+                SummaryCardsView()
+                BarChartView()
+                DistributionChartsView()
+            }
+            .opacity(appState.isRefreshingData ? 0.72 : 1)
+            .animation(.easeInOut(duration: 0.2), value: appState.isRefreshingData)
+
+            if appState.isRefreshingData {
+                refreshOverlay
+                    .transition(.opacity)
+                    .zIndex(30)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: appState.isRefreshingData)
+    }
+
     // MARK: - Header
 
     private var headerBar: some View {
-        @Bindable var state = appState
-
-        return HStack(spacing: 0) {
+        HStack(spacing: 6) {
             HStack(spacing: 6) {
                 Text("Vibe Usage")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                 if AppConfig.isDev {
                     Text("DEBUG")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(.orange)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -199,84 +291,48 @@ struct PopoverView: View {
                 }
             }
 
-            // 查看详情 — right after title
-            Button {
-                if let url = URL(string: "\(AppConfig.defaultApiUrl)/usage") {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                HStack(spacing: 3) {
-                    Text("查看详情")
-                        .font(.system(size: 10))
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 7, weight: .medium))
-                }
-                .foregroundStyle(Color(white: 0.5))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color(white: 0.12))
-                .cornerRadius(4)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.18), lineWidth: 0.5))
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, 8)
-
-            Button {
-                if let url = URL(string: "\(AppConfig.defaultApiUrl)/usage/rank") {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                HStack(spacing: 3) {
-                    Text("排行榜")
-                        .font(.system(size: 10))
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 7, weight: .medium))
-                }
-                .foregroundStyle(Color(white: 0.5))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color(white: 0.12))
-                .cornerRadius(4)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.18), lineWidth: 0.5))
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, 4)
-
             Spacer()
 
-            // Time range selector
-            HStack(spacing: 2) {
-                ForEach(TimeRange.allCases, id: \.rawValue) { range in
-                    Button {
-                        state.timeRange = range
-                        Task {
-                            await appState.fetchUsageData()
-                        }
-                    } label: {
-                        Text(range.rawValue)
-                            .font(.system(size: 11, weight: appState.timeRange == range ? .bold : .regular))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(appState.timeRange == range ? Color(white: 0.16) : Color.clear)
-                            .foregroundStyle(appState.timeRange == range ? .white : Color(white: 0.5))
-                            .cornerRadius(3)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            headerLinkButton(title: "详情", url: "\(AppConfig.defaultApiUrl)/usage")
+            headerLinkButton(title: "排行榜", url: "\(AppConfig.defaultApiUrl)/usage/rank")
 
             // Settings — NSWindow directly (SwiftUI scenes don't work in LSUIElement MenuBarExtra)
             Button {
                 SettingsWindowController.shared.show(appState: appState, updaterViewModel: updaterViewModel)
             } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13))
+                Text("设置")
+                    .font(.system(size: 11))
                     .foregroundStyle(Color(white: 0.5))
-                    .padding(4)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(white: 0.12))
+                    .cornerRadius(4)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.18), lineWidth: 0.5))
             }
             .buttonStyle(.plain)
-            .padding(.leading, 8)
         }
+    }
+
+    private func headerLinkButton(title: String, url: String) -> some View {
+        Button {
+            if let u = URL(string: url) {
+                NSWorkspace.shared.open(u)
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text(title)
+                    .font(.system(size: 11))
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .foregroundStyle(Color(white: 0.5))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(white: 0.12))
+            .cornerRadius(4)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.18), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Footer
@@ -288,37 +344,37 @@ struct PopoverView: View {
                 switch appState.syncStatus {
                 case .idle:
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(Color(red: 0.2, green: 0.8, blue: 0.5))
                 case .syncing:
                     ProgressView()
                         .controlSize(.mini)
                 case .success:
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(Color(red: 0.2, green: 0.8, blue: 0.5))
                 case .error:
                     Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(.red)
                 }
 
                 if appState.syncStatus == .syncing {
                     Text("同步中...")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(Color(white: 0.38))
                 } else if case .error(let msg) = appState.syncStatus {
                     Text(msg)
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(Color(white: 0.38))
                         .lineLimit(1)
                 } else if let lastSync = appState.lastSyncTime {
                     Text("上次同步: \(Formatters.formatRelativeTime(lastSync))")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(Color(white: 0.38))
                 } else {
                     Text("就绪")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(Color(white: 0.38))
                 }
             }
@@ -334,9 +390,9 @@ struct PopoverView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                         Text("发现更新")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                     }
                     .foregroundStyle(Color(red: 0.4, green: 0.7, blue: 1.0))
                 }
@@ -346,15 +402,20 @@ struct PopoverView: View {
 
             // Refresh button
             Button {
+                // CLI sync upload + rate-limit fetch are independent (different
+                // data sources, different IO) — fire both at once instead of
+                // making the rate-limit request wait on the CLI subprocess.
                 Task {
-                    await appState.triggerSync()
+                    async let sync: Void = appState.triggerSync()
+                    async let limits: Void = appState.refreshAllRateLimits()
+                    _ = await (sync, limits)
                 }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                     Text("更新数据")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                 }
                 .foregroundStyle(Color(white: 0.5))
             }
@@ -367,9 +428,9 @@ struct PopoverView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "power")
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                     Text("关闭")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                 }
                 .foregroundStyle(Color(white: 0.5))
             }
@@ -380,31 +441,89 @@ struct PopoverView: View {
 
     // MARK: - States
 
-    private var loadingView: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.regular)
-            Text("加载数据中...")
-                .font(.system(size: 12))
-                .foregroundStyle(Color(white: 0.5))
+    private var loadingDashboardView: some View {
+        ZStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 14) {
+                SkeletonSummaryCards()
+                SkeletonBlock(height: 238)
+                SkeletonDistributionGrid()
+            }
+            .redacted(reason: .placeholder)
+            .opacity(0.78)
+
+            refreshOverlay
+                .padding(.top, 90)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 200)
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var refreshOverlay: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("加载中")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(white: 0.66))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
     }
 
     private var emptyStateView: some View {
         VStack(spacing: 12) {
             Image(systemName: "tray")
-                .font(.system(size: 28))
+                .font(.system(size: 32))
                 .foregroundStyle(Color(white: 0.3))
             Text("暂无数据")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color(white: 0.5))
             Text("使用 AI 编程工具后数据将自动同步")
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(Color(white: 0.38))
         }
         .frame(maxWidth: .infinity)
         .frame(height: 200)
+    }
+}
+
+private struct SkeletonSummaryCards: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<4, id: \.self) { _ in
+                SkeletonBlock(height: 70)
+                    .frame(minWidth: 0, maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+private struct SkeletonDistributionGrid: View {
+    private let columns = [
+        GridItem(.flexible(minimum: 0), spacing: 10),
+        GridItem(.flexible(minimum: 0), spacing: 10),
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 10) {
+            ForEach(0..<4, id: \.self) { _ in
+                SkeletonBlock(height: 190)
+            }
+        }
+    }
+}
+
+private struct SkeletonBlock: View {
+    let height: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color(white: 0.09))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
     }
 }

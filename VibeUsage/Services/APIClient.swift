@@ -5,14 +5,18 @@ struct APIClient: Sendable {
     let baseURL: String
     let apiKey: String
 
-    /// Fetch usage buckets for the dashboard
-    func fetchUsage(days: Int) async throws -> UsageResponse {
-        let urlString = "\(baseURL)/api/usage?days=\(days)"
-        debugLog("[APIClient] GET \(urlString)")
-        debugLog("[APIClient] Authorization: Bearer \(apiKey.prefix(12))...")
-        guard let url = URL(string: urlString) else {
+    /// Fetch usage buckets for the dashboard.
+    func fetchUsage(range: UsageQueryRange) async throws -> UsageResponse {
+        guard var components = URLComponents(string: "\(baseURL)/api/usage") else {
             throw APIError.invalidURL
         }
+        var queryItems = range.queryItems
+        queryItems.append(URLQueryItem(name: "tz", value: TimeZone.current.identifier))
+        components.queryItems = queryItems
+        guard let url = components.url else { throw APIError.invalidURL }
+
+        debugLog("[APIClient] GET \(url.absoluteString)")
+        debugLog("[APIClient] Authorization: Bearer \(apiKey.prefix(12))...")
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -43,7 +47,7 @@ struct APIClient: Sendable {
     /// Returns the response data if valid, so we can use it immediately.
     func validateKeyAndFetch() async throws -> UsageResponse {
         // Reuse fetchUsage — 401 means invalid key
-        return try await fetchUsage(days: 1)
+        return try await fetchUsage(range: .days(1))
     }
 
     enum APIError: LocalizedError {
@@ -61,4 +65,116 @@ struct APIClient: Sendable {
             }
         }
     }
+}
+
+enum UsageQueryRange: Sendable {
+    case days(Int)
+    case from(Date)
+    case custom(from: Date, to: Date)
+
+    var queryItems: [URLQueryItem] {
+        switch self {
+        case .days(let days):
+            [URLQueryItem(name: "days", value: String(days))]
+        case .from(let from):
+            [URLQueryItem(name: "from", value: Self.isoString(from))]
+        case .custom(let from, let to):
+            [
+                URLQueryItem(name: "from", value: Self.dateString(from)),
+                URLQueryItem(name: "to", value: Self.dateString(to)),
+            ]
+        }
+    }
+
+    private static func isoString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private static func dateString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - Device authorization flow (unauthenticated)
+
+struct DeviceCodeResponse: Decodable, Sendable {
+    let deviceCode: String
+    let userCode: String
+    let verificationUri: String
+    let verificationUriComplete: String
+    let expiresIn: Int
+    let interval: Int
+}
+
+struct DevicePollResponse: Decodable, Sendable {
+    let apiKey: String?
+    let apiUrl: String?
+    let error: String?
+}
+
+enum DeviceFlowError: LocalizedError {
+    case denied
+    case expired
+    case network(String)
+    case server(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .denied: "你拒绝了链接请求。"
+        case .expired: "验证码已过期，请重新登录。"
+        case .network(let msg): "网络错误：\(msg)"
+        case .server(let msg): "服务端错误：\(msg)"
+        }
+    }
+}
+
+func requestDeviceCode(baseURL: String, clientName: String, hostname: String?) async throws -> DeviceCodeResponse {
+    guard let url = URL(string: "\(baseURL)/api/usage/device/code") else {
+        throw APIClient.APIError.invalidURL
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.timeoutInterval = 15
+    var body: [String: String] = ["clientName": clientName]
+    if let hostname { body["hostname"] = hostname }
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse else {
+        throw APIClient.APIError.invalidResponse
+    }
+    guard http.statusCode == 200 else {
+        throw APIClient.APIError.httpError(http.statusCode)
+    }
+    return try JSONDecoder().decode(DeviceCodeResponse.self, from: data)
+}
+
+func pollDeviceCode(baseURL: String, deviceCode: String) async throws -> DevicePollResponse {
+    guard let url = URL(string: "\(baseURL)/api/usage/device/poll") else {
+        throw APIClient.APIError.invalidURL
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.timeoutInterval = 15
+    req.httpBody = try JSONSerialization.data(withJSONObject: ["deviceCode": deviceCode])
+
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse else {
+        throw APIClient.APIError.invalidResponse
+    }
+    // 200 covers success + pending/denied/expired (RFC 8628 style).
+    // 410 is "already delivered, never replay".
+    if http.statusCode == 200 || http.statusCode == 410 {
+        return try JSONDecoder().decode(DevicePollResponse.self, from: data)
+    }
+    throw APIClient.APIError.httpError(http.statusCode)
 }

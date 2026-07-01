@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Manages a standalone NSWindow for settings.
-/// LSUIElement menu bar apps need activation policy workaround for keyboard input.
+/// Settings is kept as an explicit NSWindow so it can coexist cleanly with the
+/// custom menu-bar panel and Sparkle's normal AppKit dialogs.
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
@@ -9,9 +10,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
 
     func show(appState: AppState, updaterViewModel: UpdaterViewModel) {
-        // .regular gives Settings normal-window behavior (click-to-front, Cmd-Tab,
-        // full key handling). ActivationCoordinator reconciles so a later popup
-        // close won't drop the app back to .prohibited and kill this window.
+        // ActivationCoordinator remains the single policy touch point even
+        // though the app is now Dock-regular by default.
         ActivationCoordinator.shared.settingsDidOpen()
         NSApp.activate(ignoringOtherApps: true)
 

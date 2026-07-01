@@ -124,11 +124,14 @@ struct BarChartView: View {
             // Fill in all days in range
             let calendar = Calendar.current
             let today = calendar.startOfDay(for: Date())
-            let numDays = appState.timeRange.days
+            let numDays = appState.visibleDayCount
             var result: [BarData] = []
 
             for i in stride(from: numDays - 1, through: 0, by: -1) {
-                if let date = calendar.date(byAdding: .day, value: -i, to: today) {
+                let endDay = appState.timeRange == .custom
+                    ? calendar.startOfDay(for: appState.normalizedCustomRange.to)
+                    : today
+                if let date = calendar.date(byAdding: .day, value: -i, to: endDay) {
                     let formatter = DateFormatter()
                     formatter.dateFormat = "yyyy-MM-dd"
                     let key = formatter.string(from: date)

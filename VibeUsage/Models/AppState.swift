@@ -26,15 +26,16 @@ enum TimeRange: String, CaseIterable {
     case oneDay = "1D"
     case sevenDays = "7D"
     case thirtyDays = "30D"
+    case ninetyDays = "90D"
+    case custom = "custom"
 
-    /// How many days to request from the backend. `.today` re-uses the same
-    /// `days=1` fetch as `.oneDay`; the today-cutoff is then applied
-    /// client-side (see `startCutoff`) so callers don't need a separate API.
-    var days: Int {
+    var fixedDayCount: Int {
         switch self {
         case .today, .oneDay: 1
         case .sevenDays: 7
         case .thirtyDays: 30
+        case .ninetyDays: 90
+        case .custom: 7
         }
     }
 
@@ -90,8 +91,45 @@ final class AppState {
 
     // MARK: - Dashboard Controls
     var timeRange: TimeRange = .oneDay
+    var customRangeFrom: Date = Calendar.current.date(byAdding: .day, value: -6, to: Calendar.current.startOfDay(for: Date())) ?? Date()
+    var customRangeTo: Date = Calendar.current.startOfDay(for: Date())
     var chartMode: ChartMode = .token
     var filters: FilterState = .init()
+
+    var currentQueryRange: UsageQueryRange {
+        switch timeRange {
+        case .today:
+            return .from(Calendar.current.startOfDay(for: Date()))
+        case .oneDay:
+            return .days(1)
+        case .sevenDays:
+            return .days(7)
+        case .thirtyDays:
+            return .days(30)
+        case .ninetyDays:
+            return .days(90)
+        case .custom:
+            let bounds = normalizedCustomRange
+            return .custom(from: bounds.from, to: bounds.to)
+        }
+    }
+
+    var visibleDayCount: Int {
+        if timeRange != .custom { return timeRange.fixedDayCount }
+        let bounds = normalizedCustomRange
+        let calendar = Calendar.current
+        let from = calendar.startOfDay(for: bounds.from)
+        let to = calendar.startOfDay(for: bounds.to)
+        let days = calendar.dateComponents([.day], from: from, to: to).day ?? 0
+        return max(days + 1, 1)
+    }
+
+    var normalizedCustomRange: (from: Date, to: Date) {
+        if customRangeFrom <= customRangeTo {
+            return (customRangeFrom, customRangeTo)
+        }
+        return (customRangeTo, customRangeFrom)
+    }
 
     var filteredSessions: [UsageSession] {
         let cutoff = timeRange.startCutoff
@@ -234,7 +272,7 @@ final class AppState {
         let client = APIClient(baseURL: apiUrl, apiKey: apiKey)
 
         do {
-            let response = try await client.fetchUsage(days: timeRange.days)
+            let response = try await client.fetchUsage(range: currentQueryRange)
             buckets = response.buckets
             sessions = response.sessions ?? []
             hasAnyData = response.hasAnyData

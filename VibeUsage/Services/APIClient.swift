@@ -5,14 +5,18 @@ struct APIClient: Sendable {
     let baseURL: String
     let apiKey: String
 
-    /// Fetch usage buckets for the dashboard
-    func fetchUsage(days: Int) async throws -> UsageResponse {
-        let urlString = "\(baseURL)/api/usage?days=\(days)"
-        debugLog("[APIClient] GET \(urlString)")
-        debugLog("[APIClient] Authorization: Bearer \(apiKey.prefix(12))...")
-        guard let url = URL(string: urlString) else {
+    /// Fetch usage buckets for the dashboard.
+    func fetchUsage(range: UsageQueryRange) async throws -> UsageResponse {
+        guard var components = URLComponents(string: "\(baseURL)/api/usage") else {
             throw APIError.invalidURL
         }
+        var queryItems = range.queryItems
+        queryItems.append(URLQueryItem(name: "tz", value: TimeZone.current.identifier))
+        components.queryItems = queryItems
+        guard let url = components.url else { throw APIError.invalidURL }
+
+        debugLog("[APIClient] GET \(url.absoluteString)")
+        debugLog("[APIClient] Authorization: Bearer \(apiKey.prefix(12))...")
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -43,7 +47,7 @@ struct APIClient: Sendable {
     /// Returns the response data if valid, so we can use it immediately.
     func validateKeyAndFetch() async throws -> UsageResponse {
         // Reuse fetchUsage — 401 means invalid key
-        return try await fetchUsage(days: 1)
+        return try await fetchUsage(range: .days(1))
     }
 
     enum APIError: LocalizedError {
@@ -60,6 +64,41 @@ struct APIClient: Sendable {
             case .httpError(let code): "HTTP 错误 \(code)"
             }
         }
+    }
+}
+
+enum UsageQueryRange: Sendable {
+    case days(Int)
+    case from(Date)
+    case custom(from: Date, to: Date)
+
+    var queryItems: [URLQueryItem] {
+        switch self {
+        case .days(let days):
+            [URLQueryItem(name: "days", value: String(days))]
+        case .from(let from):
+            [URLQueryItem(name: "from", value: Self.isoString(from))]
+        case .custom(let from, let to):
+            [
+                URLQueryItem(name: "from", value: Self.dateString(from)),
+                URLQueryItem(name: "to", value: Self.dateString(to)),
+            ]
+        }
+    }
+
+    private static func isoString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private static func dateString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }
 

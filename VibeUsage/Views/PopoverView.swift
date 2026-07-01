@@ -234,6 +234,7 @@ struct PopoverView: View {
                             .background(Color(white: 0.16))
                             .padding(.vertical, 2)
                         FilterTagsView()
+                            .zIndex(10)
                         SummaryCardsView()
                         BarChartView()
                         DistributionChartsView()

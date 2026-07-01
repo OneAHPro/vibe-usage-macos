@@ -15,6 +15,7 @@ final class ActivationCoordinator {
 
     private var popupVisible = false
     private var settingsVisible = false
+    weak var appState: AppState?
 
     /// Invoked whenever Settings visibility changes. MenuBarController uses this
     /// to lower the popup's window level while Settings is visible, so standard
@@ -29,6 +30,10 @@ final class ActivationCoordinator {
     var onUpdateModalVisibilityChange: ((Bool) -> Void)?
 
     private init() {}
+
+    func configure(with appState: AppState) {
+        self.appState = appState
+    }
 
     func popupDidOpen() {
         popupVisible = true
@@ -55,7 +60,7 @@ final class ActivationCoordinator {
     }
 
     private func reconcile() {
-        let policy: NSApplication.ActivationPolicy = .regular
+        let policy: NSApplication.ActivationPolicy = appState?.showInDock == false ? .accessory : .regular
         if NSApp.activationPolicy() != policy {
             NSApp.setActivationPolicy(policy)
         }

@@ -20,8 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        configureDockPresentation()
         appState.initialize()
+        ActivationCoordinator.shared.configure(with: appState)
+        configureDockPresentation()
         menuBarController = MenuBarController(appState: appState, updaterViewModel: updaterViewModel)
     }
 
@@ -31,11 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureDockPresentation() {
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
+        let showInDock = appState.showInDock
+        let policy: NSApplication.ActivationPolicy = showInDock ? .regular : .accessory
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
         }
 
-        if let image = loadDockIcon() {
+        if showInDock, let image = loadDockIcon() {
             NSApp.applicationIconImage = image
         }
     }

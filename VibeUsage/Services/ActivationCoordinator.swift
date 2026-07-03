@@ -3,19 +3,26 @@ import AppKit
 /// Centralizes `NSApplication.activationPolicy` and Dock presentation
 /// management across the menu-bar popup and the Settings window.
 ///
-/// Vibe Usage is now a regular Dock app while still keeping its menu-bar item,
-/// so the lowest policy is `.regular`. The coordinator still owns the call site
-/// so popup/settings transitions cannot fight each other.
-///
-/// Without coordination, one surface closing would reset the policy to
-/// a lower state while the other was still visible.
+/// The policy follows the user's "show in Dock" preference (`.regular` when
+/// shown, `.accessory` when hidden), with one exception: while the Settings
+/// window is visible the app is always promoted to `.regular`, so Settings
+/// keeps a main menu and a Cmd-Tab entry even when the Dock icon is off.
+/// The coordinator owns the only `setActivationPolicy` call site so
+/// popup/settings transitions and preference changes cannot fight each other.
 @MainActor
 final class ActivationCoordinator {
     static let shared = ActivationCoordinator()
 
-    private var popupVisible = false
     private var settingsVisible = false
-    weak var appState: AppState?
+
+    /// Policy last applied by `reconcile()`. Policy and Dock icon are only
+    /// touched on actual transitions — reassigning `applicationIconImage`
+    /// forces a Dock redraw even when nothing changed. `nil` until the first
+    /// reconcile so launch always applies, including dev runs without a
+    /// bundle where the initial policy is already `.regular`.
+    private var appliedPolicy: NSApplication.ActivationPolicy?
+
+    private lazy var dockIcon: NSImage? = loadDockIcon()
 
     /// Invoked whenever Settings visibility changes. MenuBarController uses this
     /// to lower the popup's window level while Settings is visible, so standard
@@ -31,17 +38,13 @@ final class ActivationCoordinator {
 
     private init() {}
 
-    func configure(with appState: AppState) {
-        self.appState = appState
-    }
-
+    /// Popup visibility doesn't currently influence the policy; the hooks stay
+    /// so surfaces keep reporting transitions through the coordinator.
     func popupDidOpen() {
-        popupVisible = true
         reconcile()
     }
 
     func popupDidClose() {
-        popupVisible = false
         reconcile()
     }
 
@@ -59,26 +62,25 @@ final class ActivationCoordinator {
         if changed { onSettingsVisibilityChange?(false) }
     }
 
-    /// Applies the user's Dock visibility preference, both at launch and
-    /// whenever the preference may change at runtime (e.g. when Settings
-    /// closes). Keeps activation policy and Dock icon in sync so toggling
-    /// "在 Dock 中显示" doesn't leave one set while the other is unset.
-    func configureDockPresentation() {
-        let showInDock = appState?.showInDock != false
-        let policy: NSApplication.ActivationPolicy = showInDock ? .regular : .accessory
-        if NSApp.activationPolicy() != policy {
-            NSApp.setActivationPolicy(policy)
-        }
-
-        if showInDock, let image = loadDockIcon() {
-            NSApp.applicationIconImage = image
-        } else {
-            NSApp.applicationIconImage = nil
-        }
+    /// Applies the user's Dock visibility preference: at launch (before any
+    /// other startup work, so a hidden Dock icon never flashes) and whenever
+    /// `AppState.showInDock` changes. While Settings is open the change is
+    /// deferred by the reconcile arbitration until the window closes, which
+    /// is what the settings footer promises.
+    func applyDockPreference() {
+        reconcile()
     }
 
     private func reconcile() {
-        configureDockPresentation()
+        let showInDock = UserDefaults.standard.object(forKey: "showInDock") as? Bool ?? true
+        let policy: NSApplication.ActivationPolicy = (showInDock || settingsVisible) ? .regular : .accessory
+        guard policy != appliedPolicy else { return }
+        appliedPolicy = policy
+
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+        }
+        NSApp.applicationIconImage = policy == .regular ? dockIcon : nil
     }
 
     private func loadDockIcon() -> NSImage? {

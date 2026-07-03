@@ -20,9 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ActivationCoordinator.shared.applyDockPreference()
         appState.initialize()
-        ActivationCoordinator.shared.configure(with: appState)
-        ActivationCoordinator.shared.configureDockPresentation()
         menuBarController = MenuBarController(appState: appState, updaterViewModel: updaterViewModel)
     }
 

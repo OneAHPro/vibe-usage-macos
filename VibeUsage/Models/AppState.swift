@@ -176,7 +176,10 @@ final class AppState {
         didSet { UserDefaults.standard.set(showTokensInMenuBar, forKey: "showTokensInMenuBar") }
     }
     var showInDock: Bool = true {
-        didSet { UserDefaults.standard.set(showInDock, forKey: "showInDock") }
+        didSet {
+            UserDefaults.standard.set(showInDock, forKey: "showInDock")
+            ActivationCoordinator.shared.applyDockPreference()
+        }
     }
 
     // MARK: - Menu Bar Stats (matches current time range, no filters)

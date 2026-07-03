@@ -12,6 +12,9 @@ struct UsageBucket: Codable, Identifiable, Equatable {
     let bucketStart: String
     let inputTokens: Int
     let outputTokens: Int
+    /// Not yet emitted by the sync pipeline (collector and server track only
+    /// cache reads); optional so decoding keeps working once it appears.
+    let cacheCreationInputTokens: Int?
     let cachedInputTokens: Int
     let reasoningOutputTokens: Int
     let totalTokens: Int

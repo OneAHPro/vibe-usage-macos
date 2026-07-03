@@ -10,8 +10,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
 
     func show(appState: AppState, updaterViewModel: UpdaterViewModel) {
-        // ActivationCoordinator remains the single policy touch point even
-        // though the app is now Dock-regular by default.
+        // ActivationCoordinator remains the single policy touch point; while
+        // Settings is visible it keeps the app `.regular` even if the user
+        // has hidden the Dock icon.
         ActivationCoordinator.shared.settingsDidOpen()
         NSApp.activate(ignoringOtherApps: true)
 

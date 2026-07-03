@@ -175,6 +175,12 @@ final class AppState {
     var showTokensInMenuBar: Bool = false {
         didSet { UserDefaults.standard.set(showTokensInMenuBar, forKey: "showTokensInMenuBar") }
     }
+    var showInDock: Bool = true {
+        didSet {
+            UserDefaults.standard.set(showInDock, forKey: "showInDock")
+            ActivationCoordinator.shared.applyDockPreference()
+        }
+    }
 
     // MARK: - Menu Bar Stats (matches current time range, no filters)
 
@@ -209,6 +215,7 @@ final class AppState {
         // Load menu bar prefs
         self.showCostInMenuBar = UserDefaults.standard.object(forKey: "showCostInMenuBar") as? Bool ?? true
         self.showTokensInMenuBar = UserDefaults.standard.object(forKey: "showTokensInMenuBar") as? Bool ?? false
+        self.showInDock = UserDefaults.standard.object(forKey: "showInDock") as? Bool ?? true
         self.claudeRateLimitEnabled = UserDefaults.standard.bool(forKey: "claudeRateLimitEnabled")
 
         // Self-heal: if capture was enabled but a claude-hud upgrade or

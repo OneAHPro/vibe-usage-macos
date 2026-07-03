@@ -114,8 +114,17 @@ struct SettingsView: View {
                     .onChange(of: autoStartEnabled) { _, newValue in
                         setAutoStart(newValue)
                     }
+
+                Toggle("在 Dock 中显示", isOn: Binding(
+                    get: { appState.showInDock },
+                    set: { appState.showInDock = $0 }
+                ))
+                .tint(.green)
             } header: {
                 Text("通用")
+            } footer: {
+                Text("关闭设置窗口后生效")
+                    .font(.caption)
             }
 
             // About & Updates

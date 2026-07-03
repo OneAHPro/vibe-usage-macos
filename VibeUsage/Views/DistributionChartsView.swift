@@ -140,7 +140,6 @@ private struct DonutCardView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color(white: 0.63))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
                 }
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 Spacer()
@@ -175,14 +174,9 @@ private struct DonutCardView: View {
                                 Text(valueText(slice))
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(Color(white: 0.55))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.65)
-                                    .frame(minWidth: 32, maxWidth: 58, alignment: .trailing)
                                 Text(percentage(slice))
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(Color(white: 0.38))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.65)
                                     .frame(width: 42, alignment: .trailing)
                             }
                         }
@@ -237,7 +231,6 @@ private struct MetricToggleView: View {
                 .font(.system(size: 11, weight: mode == m ? .medium : .regular))
                 .foregroundStyle(mode == m ? .white : Color(white: 0.5))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
                 .background(mode == m ? Color(white: 0.28) : Color.clear)

@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_NAME="Vibe Usage"
-BUNDLE_ID="ai.vibecafe.vibe-usage"
+BUNDLE_ID="com.codsexradar.vibe-usage"
 EXECUTABLE="VibeUsage"
 BUILD_DIR="$PROJECT_DIR/.build/release"
 DIST_DIR="$PROJECT_DIR/dist"
@@ -75,6 +75,11 @@ cp "$BUILD_DIR/$EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE"
 
 cp "$PROJECT_DIR/VibeUsage/Info.plist" "$APP_BUNDLE/Contents/"
+ACTUAL_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_BUNDLE/Contents/Info.plist")
+if [ "$ACTUAL_BUNDLE_ID" != "$BUNDLE_ID" ]; then
+    echo "    ERROR: bundle identifier mismatch ($ACTUAL_BUNDLE_ID != $BUNDLE_ID)" >&2
+    exit 1
+fi
 
 RESOURCE_BUNDLE="$BUILD_DIR/VibeUsage_VibeUsage.bundle"
 if [ -d "$RESOURCE_BUNDLE" ]; then

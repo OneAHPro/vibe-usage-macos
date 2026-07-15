@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Manages a standalone NSWindow for settings.
 /// Settings is kept as an explicit NSWindow so it can coexist cleanly with the
-/// custom menu-bar panel and Sparkle's normal AppKit dialogs.
+/// standard dashboard window and other normal AppKit dialogs.
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
@@ -10,9 +10,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
 
     func show(appState: AppState) {
-        // ActivationCoordinator remains the single policy touch point; while
-        // Settings is visible it keeps the app `.regular` even if the user
-        // has hidden the Dock icon.
+        // Mark Settings visible before activation so the app delegate does not
+        // bring the dashboard window over it during the activation transition.
         ActivationCoordinator.shared.settingsDidOpen()
         NSApp.activate(ignoringOtherApps: true)
 

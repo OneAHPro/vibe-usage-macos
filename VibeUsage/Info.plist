@@ -9,19 +9,19 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>ai.vibecafe.vibe-usage</string>
+	<string>com.codsexradar.vibe-usage</string>
 	<key>CFBundleName</key>
 	<string>Vibe Usage</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.5.3</string>
+	<string>0.6.0</string>
 	<key>CFBundleVersion</key>
-	<string>24</string>
+	<string>25</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
-	<true/>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -29,15 +29,5 @@
 	</dict>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright (c) 2025 VibeCafe. All rights reserved.</string>
-	<key>SUAutomaticallyUpdate</key>
-	<false/>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUScheduledCheckInterval</key>
-	<integer>28800</integer>
-	<key>SUFeedURL</key>
-	<string>https://github.com/vibe-cafe/vibe-usage-app/releases/latest/download/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>0GXdx5+udtV3oD0t8FQNih6WGLcwpn0EZrsvT4w7AyM=</string>
 </dict>
 </plist>

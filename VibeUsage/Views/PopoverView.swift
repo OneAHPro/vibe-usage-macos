@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Main popover container — full dashboard view
+/// Main dashboard content hosted inside the standard application window.
 struct PopoverView: View {
     @Environment(AppState.self) private var appState
     @State private var deviceFlowState: DeviceFlowUIState = .idle

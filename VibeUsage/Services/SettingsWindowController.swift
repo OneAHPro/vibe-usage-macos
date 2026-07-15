@@ -9,7 +9,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
 
-    func show(appState: AppState, updaterViewModel: UpdaterViewModel) {
+    func show(appState: AppState) {
         // ActivationCoordinator remains the single policy touch point; while
         // Settings is visible it keeps the app `.regular` even if the user
         // has hidden the Dock icon.
@@ -23,7 +23,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
         let settingsView = SettingsView()
             .environment(appState)
-            .environmentObject(updaterViewModel)
 
         let hostingController = NSHostingController(rootView: settingsView)
 

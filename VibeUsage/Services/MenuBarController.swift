@@ -1,11 +1,8 @@
 import AppKit
-import SwiftUI
 import Observation
+import SwiftUI
 
 /// SwiftUI view rendered inside the NSStatusItem button.
-/// Using NSHostingView for the status item content is the best-practice workaround
-/// for proper vertical centering of multi-line text — attributedTitle and
-/// hand-composed NSImages both fight the menu-bar's implicit vertical metrics.
 private struct MenuBarLabel: View {
     let icon: NSImage
     let lines: [String]
@@ -31,12 +28,7 @@ private struct MenuBarLabel: View {
     }
 }
 
-/// NSHostingView subclass that passes all mouse events to the superview (NSStatusBarButton),
-/// so the button's target-action mechanism fires normally on click.
-/// Two-pronged approach:
-///   1. hitTest returns nil → AppKit routes the event to the button directly.
-///   2. mouseDown/mouseUp forward to superview → handles cases where SwiftUI's
-///      internal responder chain receives the event anyway.
+/// Passes mouse events through to the NSStatusBarButton so target-action fires.
 private final class PassthroughHostingView<V: View>: NSHostingView<V> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -44,108 +36,35 @@ private final class PassthroughHostingView<V: View>: NSHostingView<V> {
     override func mouseUp(with event: NSEvent) { superview?.mouseUp(with: event) }
 }
 
-/// Owns the menu-bar status item and the borderless popover panel.
-/// Replaces SwiftUI MenuBarExtra so we can:
-///   - render stacked text (cost over tokens) via NSHostingView
-///   - control the popover open/close animation (anchored to the icon)
+/// Owns the persistent menu-bar status item. Dashboard presentation belongs to
+/// MainWindowController; the status item only forwards its click action.
 @MainActor
 final class MenuBarController: NSObject {
     private let appState: AppState
-    private let updaterViewModel: UpdaterViewModel
-
+    private let onToggleWindow: () -> Void
     private let statusItem: NSStatusItem
     private var hostingView: PassthroughHostingView<MenuBarLabel>!
-    private var panel: PopoverPanel?
-    private var globalEventMonitor: Any?
-    private var localEventMonitor: Any?
-    private var isAnimating = false
 
-    /// Both surfaces want the panel lowered to `.normal` while they're up, and
-    /// they can overlap (e.g. an update session started from Settings). Each
-    /// callback flips its own flag; the panel level is derived from both, so
-    /// one surface closing can't prematurely restore `.popUpMenu` for the other.
-    private var settingsWindowVisible = false
-    private var updateSessionVisible = false
-
-    private func reconcilePanelLevel() {
-        panel?.level = (settingsWindowVisible || updateSessionVisible) ? .normal : .popUpMenu
-    }
-
-    private static let panelWidth: CGFloat = 520
-    private static let panelHeight: CGFloat = 620
-    private static let panelTopGap: CGFloat = 6
-    private static let openDuration: CFTimeInterval = 0.22
-    private static let closeDuration: CFTimeInterval = 0.14
-    private static let openScale: CGFloat = 0.9
-    private static let closeScale: CGFloat = 0.94
-    /// Initial downward offset (in layer coords, positive = up in unflipped NSView).
-    /// Creates a "falling out of the menu bar" feel when combined with scale.
-    private static let openYOffset: CGFloat = 4
-
-    init(appState: AppState, updaterViewModel: UpdaterViewModel) {
+    init(appState: AppState, onToggleWindow: @escaping () -> Void) {
         self.appState = appState
-        self.updaterViewModel = updaterViewModel
+        self.onToggleWindow = onToggleWindow
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
         configureStatusItem()
         observeStateChanges()
-
-        // Popup sits at .popUpMenu level (above everything) normally. Lower to
-        // .normal while Settings is visible so clicking/dragging Settings can
-        // bring it to the front through standard z-ordering.
-        ActivationCoordinator.shared.onSettingsVisibilityChange = { [weak self] visible in
-            self?.settingsWindowVisible = visible
-            self?.reconcilePanelLevel()
-        }
-
-        // Sparkle's update UI is made of normal-level windows; while an update
-        // session is active, lower our `.popUpMenu` panel to `.normal` so the
-        // update dialog isn't buried under the still-open popover. Restore when
-        // the session ends. Kept as a separate flag from Settings visibility so
-        // closing one surface can't clobber the other's lowering request.
-        ActivationCoordinator.shared.onUpdateModalVisibilityChange = { [weak self] showing in
-            self?.updateSessionVisible = showing
-            self?.reconcilePanelLevel()
-        }
-
-        // When macOS Screenshot.app (⌘⇧3/4/5) or any screen-capture UI activates,
-        // close the popover. Our `.popUpMenu` panel sits above the screenshot
-        // overlay, which (a) blocks the user from screenshotting whatever is
-        // behind it and (b) prevents the interactive region/window selector
-        // from targeting our window properly. Letting the popover dismiss
-        // matches the "get out of the way" mental model users have when they
-        // start a screenshot.
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(handleAppActivation(_:)),
-            name: NSWorkspace.didActivateApplicationNotification,
-            object: nil
-        )
     }
-
-    @objc private func handleAppActivation(_ note: Notification) {
-        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              let bundleID = app.bundleIdentifier else { return }
-        // com.apple.screencaptureui covers ⌘⇧3/4/5 and the Screenshot.app menu;
-        // com.apple.ScreenSaver.Engine is unrelated but cheap to ignore here.
-        if bundleID == "com.apple.screencaptureui" {
-            closePanel()
-        }
-    }
-
-    // MARK: - Status item
 
     private static let iconSize = NSSize(width: 18, height: 18)
 
-    /// Raw icon (template) used as the SwiftUI status-item label.
     private static let iconRaw: NSImage = {
         if let url = Bundle.appResources.url(forResource: "menubar-icon", withExtension: "png"),
-           let img = NSImage(contentsOf: url) {
-            img.size = iconSize
-            img.isTemplate = true
-            return img
+           let image = NSImage(contentsOf: url) {
+            image.size = iconSize
+            image.isTemplate = true
+            return image
         }
+
         let fallback = NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: nil)!
         fallback.size = iconSize
         fallback.isTemplate = true
@@ -155,11 +74,11 @@ final class MenuBarController: NSObject {
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
 
-        // Clear the native button content — we draw everything via NSHostingView.
         button.title = ""
         button.image = nil
         button.target = self
         button.action = #selector(handleClick(_:))
+        button.toolTip = "打开或隐藏 Vibe Usage"
 
         let host = PassthroughHostingView(rootView: MenuBarLabel(icon: Self.iconRaw, lines: []))
         host.translatesAutoresizingMaskIntoConstraints = false
@@ -170,11 +89,9 @@ final class MenuBarController: NSObject {
             host.topAnchor.constraint(equalTo: button.topAnchor),
             host.bottomAnchor.constraint(equalTo: button.bottomAnchor),
         ])
-        self.hostingView = host
+        hostingView = host
     }
 
-    /// Tracks AppState reads inside `refreshStatusItem`; re-fires on any change,
-    /// then re-registers (Observation only fires once per registration).
     private func observeStateChanges() {
         withObservationTracking {
             refreshStatusItem()
@@ -185,9 +102,7 @@ final class MenuBarController: NSObject {
 
     private func refreshStatusItem() {
         guard hostingView != nil else { return }
-        let lines = menuBarLines()
-        hostingView.rootView = MenuBarLabel(icon: Self.iconRaw, lines: lines)
-        // Force SwiftUI layout so fittingSize is current, then size the status item accordingly.
+        hostingView.rootView = MenuBarLabel(icon: Self.iconRaw, lines: menuBarLines())
         hostingView.layoutSubtreeIfNeeded()
         let width = hostingView.fittingSize.width
         statusItem.length = width > 0 ? width : NSStatusItem.variableLength
@@ -195,6 +110,7 @@ final class MenuBarController: NSObject {
 
     private func menuBarLines() -> [String] {
         guard appState.isConfigured, !appState.buckets.isEmpty else { return [] }
+
         var lines: [String] = []
         if appState.showCostInMenuBar {
             lines.append(Formatters.formatCost(appState.menuBarCost))
@@ -205,301 +121,7 @@ final class MenuBarController: NSObject {
         return lines
     }
 
-    // MARK: - Click handling
-
     @objc private func handleClick(_ sender: NSStatusBarButton) {
-        if panel?.isVisible == true {
-            closePanel()
-        } else {
-            presentPanel()
-        }
-    }
-
-    // MARK: - Panel lifecycle
-
-    func presentPanel() {
-        guard !isAnimating else { return }
-        if let panel, panel.isVisible {
-            positionPanel(panel)
-            ActivationCoordinator.shared.popupDidOpen()
-            NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
-            installEventMonitors()
-            return
-        }
-        openPanel()
-    }
-
-    func presentPanelForAppActivation() {
-        guard ActivationCoordinator.shared.canPresentDashboardForAppActivation else { return }
-        guard NSApp.activationPolicy() == .regular else { return }
-        presentPanel()
-    }
-
-    func dismissPanelForAppDeactivation() {
-        guard ActivationCoordinator.shared.canDismissDashboardForAppDeactivation else { return }
-        closePanel()
-    }
-
-    private func openPanel() {
-        guard !isAnimating else { return }
-
-        let panel = ensurePanel()
-        positionPanel(panel)
-
-        Task { await appState.fetchUsageDataIfNeeded() }
-        // Popover open refreshes both Codex and Claude — both are silent local
-        // file reads now (no prompts). 60s cooldown so rapid open/close doesn't
-        // re-walk the Codex session tree or re-parse the capture file.
-        Task { await appState.refreshCodexRateLimitIfNeeded() }
-        Task { await appState.refreshClaudeRateLimitIfNeeded() }
-
-        // Keep activation policy reconciliation centralized. The app is
-        // Dock-regular by default, and this call records popup visibility.
-        ActivationCoordinator.shared.popupDidOpen()
-        NSApp.activate(ignoringOtherApps: true)
-
-        panel.alphaValue = 0
-        panel.makeKeyAndOrderFront(nil)
-        animateOpen(panel)
-        installEventMonitors()
-    }
-
-    private func closePanel() {
-        guard let panel, panel.isVisible, !isAnimating else { return }
-        animateClose(panel) { [weak self] in
-            panel.orderOut(nil)
-            ActivationCoordinator.shared.popupDidClose()
-            self?.removeEventMonitors()
-        }
-    }
-
-    private func ensurePanel() -> PopoverPanel {
-        if let panel { return panel }
-
-        // NSHostingView as contentView's subview, pinned by autolayout.
-        // Avoid NSHostingController.contentViewController here: its default intrinsic-size
-        // bridge collapses the panel to 0×0 on Sequoia (pre-layout intrinsic is (0,0)),
-        // and on Tahoe the same bridge feeds a reentrant layout loop that stack-overflows
-        // SwiftUI's ViewGraph renderer. sizingOptions drops .intrinsicContentSize from
-        // NSHostingView's default so it never probes SwiftUI with a 0×0 proposal either.
-        let rootView = AnyView(
-            PopoverView()
-                .environment(appState)
-                .environmentObject(updaterViewModel)
-        )
-        let host = NSHostingView(rootView: rootView)
-        host.translatesAutoresizingMaskIntoConstraints = false
-        if #available(macOS 13, *) {
-            host.sizingOptions = [.minSize, .maxSize]
-        }
-
-        let panel = PopoverPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: Self.panelHeight),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        // Honor any lowering request already in effect (e.g. panel first
-        // created while Settings or an update session is up).
-        panel.level = (settingsWindowVisible || updateSessionVisible) ? .normal : .popUpMenu
-        panel.hidesOnDeactivate = false
-        panel.animationBehavior = .none
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-
-        if let contentView = panel.contentView {
-            contentView.addSubview(host)
-            NSLayoutConstraint.activate([
-                host.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                host.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-                host.topAnchor.constraint(equalTo: contentView.topAnchor),
-                host.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            ])
-            contentView.wantsLayer = true
-            contentView.layer?.cornerRadius = 12
-            contentView.layer?.masksToBounds = true
-        }
-
-        self.panel = panel
-        return panel
-    }
-
-    private func positionPanel(_ panel: PopoverPanel) {
-        guard let buttonWindow = statusItem.button?.window else { return }
-        let buttonFrame = buttonWindow.frame
-
-        // Use the constant width — on first open SwiftUI hasn't laid out yet so
-        // panel.frame.size.width can be 0/stale, which sends the right-aligned
-        // anchor off-screen.
-        let width = Self.panelWidth
-
-        // Anchor the panel's right edge to the icon's right edge so a far-right icon
-        // doesn't push the panel off-screen. Use setFrameTopLeftPoint so we don't
-        // depend on the (possibly stale) height for the Y calculation.
-        var topLeftX = buttonFrame.maxX - width
-        let topLeftY = buttonFrame.minY - Self.panelTopGap
-
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(buttonFrame.origin) }) ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            topLeftX = max(visible.minX + 8, min(topLeftX, visible.maxX - width - 8))
-        }
-        panel.setFrameTopLeftPoint(NSPoint(x: topLeftX, y: topLeftY))
-    }
-
-    // MARK: - Animation
-
-    /// Combined scale + Y-translation transform, so the panel appears to "fall out"
-    /// of the menu-bar icon (icon sits at the panel's top-right).
-    private static func popTransform(scale: CGFloat, yOffset: CGFloat) -> CATransform3D {
-        var t = CATransform3DIdentity
-        t = CATransform3DTranslate(t, 0, yOffset, 0)
-        t = CATransform3DScale(t, scale, scale, 1)
-        return t
-    }
-
-    // Snappy ease-out (mimics Apple's "easeOutQuint") — content moves fast at the start,
-    // decelerates smoothly at the end. Matches Apple-native popover feel without bounce.
-    private static let easeOut = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
-    private static let easeIn = CAMediaTimingFunction(controlPoints: 0.5, 0, 0.9, 0.4)
-
-    private func animateOpen(_ panel: PopoverPanel) {
-        guard let layer = panel.contentView?.layer else {
-            panel.alphaValue = 1
-            return
-        }
-        isAnimating = true
-
-        // Anchor at top-right so scale and translation both appear to originate at
-        // the menu-bar icon (the panel is right-aligned to the icon).
-        setAnchorPoint(CGPoint(x: 1.0, y: 1.0), for: layer)
-
-        let startTransform = Self.popTransform(scale: Self.openScale, yOffset: Self.openYOffset)
-
-        layer.opacity = 0
-        layer.transform = startTransform
-
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            self?.isAnimating = false
-        }
-
-        let transformAnim = CABasicAnimation(keyPath: "transform")
-        transformAnim.fromValue = NSValue(caTransform3D: startTransform)
-        transformAnim.toValue = NSValue(caTransform3D: CATransform3DIdentity)
-        transformAnim.duration = Self.openDuration
-        transformAnim.timingFunction = Self.easeOut
-        layer.add(transformAnim, forKey: "openTransform")
-
-        // Fade shorter than transform so content becomes readable before settle.
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0
-        fade.toValue = 1
-        fade.duration = Self.openDuration * 0.7
-        fade.timingFunction = Self.easeOut
-        layer.add(fade, forKey: "openFade")
-
-        layer.opacity = 1
-        layer.transform = CATransform3DIdentity
-        CATransaction.commit()
-
-        // Panel alphaValue drives the window shadow — match the content fade so the
-        // shadow doesn't linger a frame ahead of the visible card.
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = Self.openDuration * 0.7
-            ctx.timingFunction = Self.easeOut
-            panel.animator().alphaValue = 1
-        }
-    }
-
-    private func animateClose(_ panel: PopoverPanel, completion: @escaping () -> Void) {
-        guard let layer = panel.contentView?.layer else {
-            completion()
-            return
-        }
-        isAnimating = true
-
-        let endTransform = Self.popTransform(scale: Self.closeScale, yOffset: Self.openYOffset * 0.6)
-
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            self?.isAnimating = false
-            completion()
-        }
-
-        let transformAnim = CABasicAnimation(keyPath: "transform")
-        transformAnim.fromValue = NSValue(caTransform3D: CATransform3DIdentity)
-        transformAnim.toValue = NSValue(caTransform3D: endTransform)
-        transformAnim.duration = Self.closeDuration
-        transformAnim.timingFunction = Self.easeIn
-        layer.add(transformAnim, forKey: "closeTransform")
-
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 1
-        fade.toValue = 0
-        fade.duration = Self.closeDuration
-        fade.timingFunction = Self.easeIn
-        layer.add(fade, forKey: "closeFade")
-
-        layer.opacity = 0
-        layer.transform = endTransform
-        CATransaction.commit()
-
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = Self.closeDuration
-            ctx.timingFunction = Self.easeIn
-            panel.animator().alphaValue = 0
-        }
-    }
-
-    /// Adjust a layer's anchor point without visually shifting it.
-    private func setAnchorPoint(_ anchor: CGPoint, for layer: CALayer) {
-        let oldAnchor = layer.anchorPoint
-        let bounds = layer.bounds
-
-        let newPoint = CGPoint(x: bounds.width * anchor.x, y: bounds.height * anchor.y)
-        let oldPoint = CGPoint(x: bounds.width * oldAnchor.x, y: bounds.height * oldAnchor.y)
-        let position = layer.position
-        layer.anchorPoint = anchor
-        layer.position = CGPoint(x: position.x - oldPoint.x + newPoint.x,
-                                  y: position.y - oldPoint.y + newPoint.y)
-    }
-
-    // MARK: - Outside-click & ESC dismissal
-
-    private func installEventMonitors() {
-        removeEventMonitors()
-
-        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                // Ignore clicks on our own status-bar button — `button.action` runs on
-                // mouse-up and will toggle the panel itself. If we close here on
-                // mouse-down, the subsequent mouse-up reopens it.
-                if let buttonFrame = self.statusItem.button?.window?.frame,
-                   buttonFrame.contains(NSEvent.mouseLocation) {
-                    return
-                }
-                self.closePanel()
-            }
-        }
-
-        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            // ESC = 53
-            if event.keyCode == 53 {
-                Task { @MainActor in self?.closePanel() }
-                return nil
-            }
-            return event
-        }
-    }
-
-    private func removeEventMonitors() {
-        if let monitor = globalEventMonitor { NSEvent.removeMonitor(monitor) }
-        if let monitor = localEventMonitor { NSEvent.removeMonitor(monitor) }
-        globalEventMonitor = nil
-        localEventMonitor = nil
+        onToggleWindow()
     }
 }

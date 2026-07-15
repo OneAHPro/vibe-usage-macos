@@ -3,7 +3,6 @@ import ServiceManagement
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
-    @EnvironmentObject var updaterViewModel: UpdaterViewModel
 
     @State private var apiKeyDisplay: String = ""
     @State private var autoStartEnabled: Bool = false
@@ -140,38 +139,24 @@ struct SettingsView: View {
                     .font(.caption)
             }
 
-            // Auto-start + general
+            // Auto-start
             Section {
                 Toggle("开机自启动", isOn: $autoStartEnabled)
                     .tint(.green)
                     .onChange(of: autoStartEnabled) { _, newValue in
                         setAutoStart(newValue)
                     }
-
-                Toggle("在 Dock 中显示", isOn: Binding(
-                    get: { appState.showInDock },
-                    set: { appState.showInDock = $0 }
-                ))
-                .tint(.green)
             } header: {
                 Text("通用")
-            } footer: {
-                Text("关闭设置窗口后生效")
-                    .font(.caption)
             }
 
-            // About & Updates
+            // About
             Section {
                 LabeledContent("版本") {
                     Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? AppConfig.version)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                Button("检查更新") {
-                    updaterViewModel.checkForUpdates()
-                }
-                .disabled(!updaterViewModel.canCheckForUpdates)
             } header: {
                 Text("关于")
             }

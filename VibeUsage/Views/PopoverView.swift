@@ -3,7 +3,6 @@ import SwiftUI
 /// Main popover container — full dashboard view
 struct PopoverView: View {
     @Environment(AppState.self) private var appState
-    @EnvironmentObject var updaterViewModel: UpdaterViewModel
     @State private var deviceFlowState: DeviceFlowUIState = .idle
     @State private var pendingUserCode: String?
     @State private var setupError: String?
@@ -22,7 +21,7 @@ struct PopoverView: View {
                 dashboardView
             }
         }
-        .frame(width: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.04))
     }
 
@@ -296,27 +295,6 @@ struct PopoverView: View {
                         .cornerRadius(3)
                 }
 
-                // Keep the persistent update affordance beside the app title,
-                // where it remains visible without competing with footer actions.
-                if updaterViewModel.availableUpdate != nil {
-                    Button {
-                        updaterViewModel.checkForUpdates()
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 10))
-                            Text("发现更新")
-                                .font(.system(size: 10, weight: .medium))
-                        }
-                        .foregroundStyle(Color(red: 0.4, green: 0.7, blue: 1.0))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color(red: 0.4, green: 0.7, blue: 1.0).opacity(0.15))
-                        .cornerRadius(3)
-                    }
-                    .buttonStyle(.plain)
-                    .help("发现新版本，点击更新")
-                }
             }
 
             Spacer()
@@ -324,9 +302,9 @@ struct PopoverView: View {
             headerLinkButton(title: "详情", url: "\(AppConfig.defaultApiUrl)/usage")
             headerLinkButton(title: "排行榜", url: "\(AppConfig.defaultApiUrl)/usage/rank")
 
-            // Settings — NSWindow directly (SwiftUI scenes don't work in LSUIElement MenuBarExtra)
+            // Settings remains a separate standard NSWindow.
             Button {
-                SettingsWindowController.shared.show(appState: appState, updaterViewModel: updaterViewModel)
+                SettingsWindowController.shared.show(appState: appState)
             } label: {
                 Text("设置")
                     .font(.system(size: 11))
@@ -438,7 +416,7 @@ struct PopoverView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "power")
                         .font(.system(size: 12))
-                    Text("关闭")
+                    Text("退出")
                         .font(.system(size: 11))
                 }
                 .foregroundStyle(Color(white: 0.5))

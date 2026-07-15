@@ -178,12 +178,6 @@ final class AppState {
     var showTokensInMenuBar: Bool = false {
         didSet { UserDefaults.standard.set(showTokensInMenuBar, forKey: "showTokensInMenuBar") }
     }
-    var showInDock: Bool = true {
-        didSet {
-            UserDefaults.standard.set(showInDock, forKey: "showInDock")
-            ActivationCoordinator.shared.applyDockPreference()
-        }
-    }
 
     // MARK: - Menu Bar Stats (matches current time range, no filters)
 
@@ -218,7 +212,6 @@ final class AppState {
         // Load menu bar prefs
         self.showCostInMenuBar = UserDefaults.standard.object(forKey: "showCostInMenuBar") as? Bool ?? true
         self.showTokensInMenuBar = UserDefaults.standard.object(forKey: "showTokensInMenuBar") as? Bool ?? false
-        self.showInDock = UserDefaults.standard.object(forKey: "showInDock") as? Bool ?? true
         let legacyRateLimitEnabled = UserDefaults.standard.object(forKey: "rateLimitMonitoringEnabled") as? Bool
         self.codexRateLimitEnabled = UserDefaults.standard.object(forKey: "codexRateLimitEnabled") as? Bool ?? legacyRateLimitEnabled ?? true
         self.claudeRateLimitEnabled = UserDefaults.standard.bool(forKey: "claudeRateLimitEnabled")

@@ -6,9 +6,8 @@ struct VibeUsageApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        // AppDelegate owns the menu bar status item and popover panel.
-        // The Settings scene placeholder satisfies the App protocol; Settings itself
-        // is still presented through SettingsWindowController.
+        // AppDelegate owns the standard main window and menu-bar status item.
+        // Settings remains an explicit NSWindow through SettingsWindowController.
         Settings { EmptyView() }
     }
 }
@@ -16,29 +15,32 @@ struct VibeUsageApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appState = AppState()
-    private let updaterViewModel = UpdaterViewModel()
+    private var mainWindowController: MainWindowController?
     private var menuBarController: MenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ActivationCoordinator.shared.applyDockPreference()
+        ActivationCoordinator.shared.applyStandardApplicationPolicy()
         appState.initialize()
-        menuBarController = MenuBarController(appState: appState, updaterViewModel: updaterViewModel)
+
+        let mainWindowController = MainWindowController(appState: appState)
+        self.mainWindowController = mainWindowController
+        menuBarController = MenuBarController(appState: appState) { [weak mainWindowController] in
+            mainWindowController?.toggle()
+        }
+        mainWindowController.show()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        DispatchQueue.main.async { [weak self] in
-            self?.menuBarController?.presentPanelForAppActivation()
-        }
-    }
-
-    func applicationWillResignActive(_ notification: Notification) {
-        DispatchQueue.main.async { [weak self] in
-            self?.menuBarController?.dismissPanelForAppDeactivation()
-        }
+        guard ActivationCoordinator.shared.canPresentDashboardForAppActivation else { return }
+        mainWindowController?.show()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        menuBarController?.presentPanelForAppActivation()
+        mainWindowController?.show()
         return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 }

@@ -227,7 +227,7 @@ struct PopoverView: View {
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 560)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
                 .background(Color(white: 0.16))
@@ -237,6 +237,7 @@ struct PopoverView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var dashboardContent: some View {

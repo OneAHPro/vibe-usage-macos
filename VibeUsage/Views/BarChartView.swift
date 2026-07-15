@@ -181,7 +181,7 @@ struct BarChartView: View {
             HStack {
                 Text(isHourly ? "每小时趋势" : "每日趋势")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(white: 0.63))
+                    .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer()
@@ -194,15 +194,15 @@ struct BarChartView: View {
                                 .minimumScaleFactor(0.8)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4)
-                                .background(state.chartMode == mode ? Color(white: 0.28) : Color.clear)
-                                .foregroundStyle(state.chartMode == mode ? Color.white : Color(white: 0.5))
+                                .background(state.chartMode == mode ? AppTheme.selectionBackground : Color.clear)
+                                .foregroundStyle(state.chartMode == mode ? AppTheme.primaryText : AppTheme.secondaryText)
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(2)
-                .background(Color(white: 0.16))
+                .background(AppTheme.subtleSurface)
                 .clipShape(Capsule())
                 .fixedSize(horizontal: true, vertical: false)
             }
@@ -226,11 +226,11 @@ struct BarChartView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity)
-        .background(Color(white: 0.09))
+        .background(AppTheme.surface)
         .cornerRadius(4)
         .overlay(
             RoundedRectangle(cornerRadius: 4)
-                .stroke(Color(white: 0.16), lineWidth: 1)
+                .stroke(AppTheme.separator, lineWidth: 1)
         )
     }
 
@@ -275,13 +275,13 @@ private struct ChartContent: View {
                         }
                     }
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.38))
+                    .foregroundStyle(AppTheme.tertiaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
                     Spacer()
                     Text("0")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.38))
+                        .foregroundStyle(AppTheme.tertiaryText)
                         .lineLimit(1)
                 }
                 .frame(width: yAxisWidth)
@@ -299,15 +299,15 @@ private struct ChartContent: View {
                                 let cachedH = CGFloat(bar.cached) / CGFloat(maxTotal) * 150
                                 // Output (top, white)
                                 Rectangle()
-                                    .fill(Color.white.opacity(0.9))
+                                    .fill(AppTheme.primaryText.opacity(0.9))
                                     .frame(height: outputH)
                                     .clipShape(UnevenRoundedRectangle(topLeadingRadius: 2, topTrailingRadius: 2))
                                 // Input (bottom, zinc)
                                 Rectangle()
-                                    .fill(Color(white: 0.5))
+                                    .fill(AppTheme.secondaryText)
                                     .frame(height: inputH)
                                 Rectangle()
-                                    .fill(Color(white: 0.24))
+                                    .fill(AppTheme.quaternaryText)
                                     .frame(height: cachedH)
                             case .cost:
                                 let costH = CGFloat(bar.cost) / CGFloat(maxCost) * 150
@@ -384,7 +384,7 @@ private struct ChartContent: View {
                                 let bar = data[index]
                                 Text(isHourly ? Formatters.formatHourShort(bar.id) : Formatters.formatDateShort(bar.id))
                                     .font(.system(size: 11))
-                                    .foregroundStyle(Color(white: 0.5))
+                                    .foregroundStyle(AppTheme.secondaryText)
                                     .lineLimit(1)
                                     .frame(width: xLabelWidth, alignment: .center)
                                     .position(
@@ -422,22 +422,22 @@ private struct ChartContent: View {
     private func tooltip(for bar: BarData) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(isHourly ? Formatters.formatHourShort(bar.id) : Formatters.formatDateShort(bar.id))
-                .foregroundStyle(.white)
+                .foregroundStyle(AppTheme.primaryText)
                 .fontWeight(.medium)
 
             switch chartMode {
             case .token:
                 Text("总 Token: \(Formatters.formatNumber(bar.total))")
-                    .foregroundStyle(Color(white: 0.8))
+                    .foregroundStyle(AppTheme.primaryText)
                 HStack(spacing: 8) {
                     Text("输入: \(Formatters.formatNumber(bar.input))")
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(AppTheme.secondaryText)
                     Text("输出: \(Formatters.formatNumber(bar.output))")
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(AppTheme.secondaryText)
                 }
                 if bar.cached > 0 {
                     Text("缓存: \(Formatters.formatNumber(bar.cached))")
-                        .foregroundStyle(Color(white: 0.45))
+                        .foregroundStyle(AppTheme.tertiaryText)
                 }
                 Text("费用: \(Formatters.formatCost(bar.cost))")
                     .foregroundStyle(Color(red: 0.2, green: 0.8, blue: 0.5))
@@ -451,9 +451,9 @@ private struct ChartContent: View {
         }
         .font(.system(size: 11))
         .padding(8)
-        .background(Color.black)
+        .background(AppTheme.tooltipBackground)
         .cornerRadius(4)
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.2), lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.separator, lineWidth: 0.5))
         .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
         .fixedSize()
     }

@@ -63,7 +63,7 @@ struct DistributionChartsView: View {
             Color(red: 0.55, green: 0.36, blue: 0.96),
             Color(red: 0.93, green: 0.30, blue: 0.60),
         ]
-        let otherColor = Color(white: 0.32)
+        let otherColor = AppTheme.tertiaryText
 
         var slices: [SliceData] = []
         var otherTokens = 0
@@ -134,11 +134,11 @@ private struct DonutCardView: View {
                 HStack(spacing: 5) {
                     Image(systemName: icon)
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(AppTheme.secondaryText)
                         .frame(width: 13)
                     Text(title)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(white: 0.63))
+                        .foregroundStyle(AppTheme.secondaryText)
                         .lineLimit(1)
                 }
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
@@ -150,7 +150,7 @@ private struct DonutCardView: View {
             if slices.isEmpty || total == 0 {
                 Text("暂无数据")
                     .font(.system(size: 12))
-                    .foregroundStyle(Color(white: 0.38))
+                    .foregroundStyle(AppTheme.tertiaryText)
                     .frame(maxWidth: .infinity)
                     .frame(height: 80)
             } else {
@@ -166,17 +166,17 @@ private struct DonutCardView: View {
                                     .frame(width: 7, height: 7)
                                 Text(slice.label)
                                     .font(.system(size: 11))
-                                    .foregroundStyle(Color(white: 0.7))
+                                    .foregroundStyle(AppTheme.primaryText)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                                 Spacer(minLength: 4)
                                 Text(valueText(slice))
                                     .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(Color(white: 0.55))
+                                    .foregroundStyle(AppTheme.secondaryText)
                                 Text(percentage(slice))
                                     .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(Color(white: 0.38))
+                                    .foregroundStyle(AppTheme.tertiaryText)
                                     .frame(width: 42, alignment: .trailing)
                             }
                         }
@@ -186,9 +186,9 @@ private struct DonutCardView: View {
         }
         .padding(14)
         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(white: 0.09))
+        .background(AppTheme.surface)
         .cornerRadius(4)
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.separator, lineWidth: 1))
         .animation(.easeInOut(duration: 0.28), value: slices.map { "\($0.label):\($0.tokens):\($0.cost)" }.joined(separator: "|"))
     }
 
@@ -219,7 +219,7 @@ private struct MetricToggleView: View {
             toggleButton(.cost)
         }
         .padding(2)
-        .background(Color(white: 0.16))
+        .background(AppTheme.subtleSurface)
         .clipShape(Capsule())
     }
 
@@ -229,11 +229,11 @@ private struct MetricToggleView: View {
         } label: {
             Text(m.label)
                 .font(.system(size: 11, weight: mode == m ? .medium : .regular))
-                .foregroundStyle(mode == m ? .white : Color(white: 0.5))
+                .foregroundStyle(mode == m ? AppTheme.primaryText : AppTheme.secondaryText)
                 .lineLimit(1)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
-                .background(mode == m ? Color(white: 0.28) : Color.clear)
+                .background(mode == m ? AppTheme.selectionBackground : Color.clear)
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -252,7 +252,7 @@ private struct DonutShape: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color(white: 0.16), lineWidth: lineWidth)
+                .stroke(AppTheme.separator, lineWidth: lineWidth)
 
             Canvas { context, size in
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -277,10 +277,10 @@ private struct DonutShape: View {
             VStack(spacing: 1) {
                 Text(mode == .tokens ? "Tokens" : "预估")
                     .font(.system(size: 9))
-                    .foregroundStyle(Color(white: 0.45))
+                    .foregroundStyle(AppTheme.tertiaryText)
                 Text(centerLabel)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppTheme.primaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
             }

@@ -58,7 +58,7 @@ struct MainWindowControllerTests {
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `swift test --filter MainWindowControllerTests`
+Run: `./scripts/test.sh --filter MainWindowControllerTests`
 
 Expected: compilation fails because `MainWindowController` does not exist.
 
@@ -173,13 +173,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
 - [ ] **Step 2: Run the focused test and confirm GREEN**
 
-Run: `swift test --filter MainWindowControllerTests`
+Run: `./scripts/test.sh --filter MainWindowControllerTests`
 
 Expected: 2 tests pass.
 
 - [ ] **Step 3: Run the complete test suite**
 
-Run: `swift test`
+Run: `./scripts/test.sh`
 
 Expected: all existing and new tests pass with zero failures.
 
@@ -285,7 +285,7 @@ Menu-bar cost and Token preferences remain unchanged.
 
 - [ ] **Step 5: Run tests and build**
 
-Run: `swift test && swift build`
+Run: `./scripts/test.sh && swift build`
 
 Expected: all tests pass and the executable builds successfully.
 
@@ -342,7 +342,7 @@ Expected: no matches in the listed standard-window surfaces.
 
 - [ ] **Step 5: Run tests and build**
 
-Run: `swift test && swift build`
+Run: `./scripts/test.sh && swift build`
 
 Expected: all tests pass and the executable builds successfully.
 
@@ -393,7 +393,7 @@ PlistBuddy lookup reports the key is absent.
 
 - [ ] **Step 3: Run full tests and build the app bundle**
 
-Run: `swift test && ./scripts/build-app.sh`
+Run: `./scripts/test.sh && ./scripts/build-app.sh`
 
 Expected: all tests pass and `dist/Vibe Usage.app` is produced with an ad-hoc
 signature when the upstream Developer ID is unavailable.
@@ -466,7 +466,7 @@ item or Dock icon restores the same window; Cmd-Q terminates the process.
 Run:
 
 ```bash
-swift test
+./scripts/test.sh
 ./scripts/check-version.sh
 git diff --check
 git status --short --branch

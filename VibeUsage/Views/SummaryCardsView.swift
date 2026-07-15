@@ -65,7 +65,7 @@ private struct StatCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.system(size: 12))
-                .foregroundStyle(Color(white: 0.63))
+                .foregroundStyle(AppTheme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .minimumScaleFactor(0.85)
@@ -82,11 +82,11 @@ private struct StatCard: View {
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 11)
         .padding(.vertical, 13)
-        .background(Color(white: 0.09))
+        .background(AppTheme.surface)
         .cornerRadius(4)
         .overlay(
             RoundedRectangle(cornerRadius: 4)
-                .stroke(Color(white: 0.16), lineWidth: 1)
+                .stroke(AppTheme.separator, lineWidth: 1)
         )
     }
 }

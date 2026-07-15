@@ -22,7 +22,7 @@ struct PopoverView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(white: 0.04))
+        .background(AppTheme.windowBackground)
     }
 
     // MARK: - Unconfigured State
@@ -33,7 +33,7 @@ struct PopoverView: View {
             HStack(spacing: 6) {
                 Text("Vibe Usage")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppTheme.primaryText)
                 if AppConfig.isDev {
                     Text("DEBUG")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -49,33 +49,33 @@ struct PopoverView: View {
                 .padding(.bottom, 8)
 
             Divider()
-                .background(Color(white: 0.16))
+                .background(AppTheme.separator)
 
             VStack(alignment: .leading, spacing: 16) {
                 if let pendingUserCode {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle")
                             .font(.system(size: 12))
-                            .foregroundStyle(Color(white: 0.5))
+                            .foregroundStyle(AppTheme.secondaryText)
                         Text("请确认浏览器中显示的验证码与下方一致")
                             .font(.system(size: 12))
-                            .foregroundStyle(Color(white: 0.7))
+                            .foregroundStyle(AppTheme.secondaryText)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(white: 0.06))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+                    .background(AppTheme.subtleSurface)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.separator, lineWidth: 1))
                     .cornerRadius(4)
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text("验证码")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Color(white: 0.5))
+                            .foregroundStyle(AppTheme.secondaryText)
                             .textCase(.uppercase)
                         Text(pendingUserCode)
                             .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(AppTheme.primaryText)
                             .tracking(3)
                     }
                 }
@@ -94,7 +94,7 @@ struct PopoverView: View {
                         if deviceFlowState == .awaitingApproval {
                             ProgressView()
                                 .controlSize(.small)
-                                .tint(.black)
+                                .tint(AppTheme.windowBackground)
                         }
                         Text(deviceFlowState == .awaitingApproval ? "等待浏览器确认…" : "登录并链接数据")
                             .font(.system(size: 13, weight: .medium))
@@ -103,8 +103,8 @@ struct PopoverView: View {
                     .padding(.vertical, 8)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.white)
-                .foregroundStyle(.black)
+                .tint(AppTheme.primaryText)
+                .foregroundStyle(AppTheme.windowBackground)
                 .disabled(deviceFlowState == .awaitingApproval)
 
                 if deviceFlowState == .awaitingApproval {
@@ -117,7 +117,7 @@ struct PopoverView: View {
                             .padding(.vertical, 6)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Color(white: 0.6))
+                    .foregroundStyle(AppTheme.secondaryText)
                 }
             }
             .padding(16)
@@ -209,7 +209,7 @@ struct PopoverView: View {
                 .padding(.bottom, 8)
 
             Divider()
-                .background(Color(white: 0.16))
+                .background(AppTheme.separator)
 
             // Scrollable content
             ScrollView(.vertical, showsIndicators: false) {
@@ -230,7 +230,7 @@ struct PopoverView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
-                .background(Color(white: 0.16))
+                .background(AppTheme.separator)
 
             // Footer
             footerBar
@@ -273,7 +273,7 @@ struct PopoverView: View {
             RateLimitCardView()
                 .zIndex(20)
             Divider()
-                .background(Color(white: 0.16))
+                .background(AppTheme.separator)
                 .padding(.vertical, 2)
         }
     }
@@ -285,7 +285,7 @@ struct PopoverView: View {
             HStack(spacing: 6) {
                 Text("Vibe Usage")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppTheme.primaryText)
                 if AppConfig.isDev {
                     Text("DEBUG")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -309,12 +309,12 @@ struct PopoverView: View {
             } label: {
                 Text("设置")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(white: 0.5))
+                    .foregroundStyle(AppTheme.secondaryText)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color(white: 0.12))
+                    .background(AppTheme.raisedSurface)
                     .cornerRadius(4)
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.18), lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.separator, lineWidth: 0.5))
             }
             .buttonStyle(.plain)
         }
@@ -332,12 +332,12 @@ struct PopoverView: View {
                 Image(systemName: "arrow.up.right")
                     .font(.system(size: 9, weight: .medium))
             }
-            .foregroundStyle(Color(white: 0.5))
+            .foregroundStyle(AppTheme.secondaryText)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color(white: 0.12))
+            .background(AppTheme.raisedSurface)
             .cornerRadius(4)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.18), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.separator, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
     }
@@ -369,20 +369,20 @@ struct PopoverView: View {
                 if appState.syncStatus == .syncing {
                     Text("同步中...")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(white: 0.38))
+                        .foregroundStyle(AppTheme.tertiaryText)
                 } else if case .error(let msg) = appState.syncStatus {
                     Text(msg)
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(white: 0.38))
+                        .foregroundStyle(AppTheme.tertiaryText)
                         .lineLimit(1)
                 } else if let lastSync = appState.lastSyncTime {
                     Text("上次同步: \(Formatters.formatRelativeTime(lastSync))")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(white: 0.38))
+                        .foregroundStyle(AppTheme.tertiaryText)
                 } else {
                     Text("就绪")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(white: 0.38))
+                        .foregroundStyle(AppTheme.tertiaryText)
                 }
             }
 
@@ -405,7 +405,7 @@ struct PopoverView: View {
                     Text("更新数据")
                         .font(.system(size: 11))
                 }
-                .foregroundStyle(Color(white: 0.5))
+                .foregroundStyle(AppTheme.secondaryText)
             }
             .buttonStyle(.plain)
             .disabled(appState.syncStatus == .syncing)
@@ -420,7 +420,7 @@ struct PopoverView: View {
                     Text("退出")
                         .font(.system(size: 11))
                 }
-                .foregroundStyle(Color(white: 0.5))
+                .foregroundStyle(AppTheme.secondaryText)
             }
             .buttonStyle(.plain)
             .padding(.leading, 12)
@@ -451,13 +451,13 @@ struct PopoverView: View {
                 .controlSize(.small)
             Text("加载中")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(white: 0.66))
+                .foregroundStyle(AppTheme.secondaryText)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .overlay(Capsule().stroke(AppTheme.separator, lineWidth: 1))
         .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
     }
 
@@ -465,13 +465,13 @@ struct PopoverView: View {
         VStack(spacing: 12) {
             Image(systemName: "tray")
                 .font(.system(size: 32))
-                .foregroundStyle(Color(white: 0.3))
+                .foregroundStyle(AppTheme.tertiaryText)
             Text("暂无数据")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(white: 0.5))
+                .foregroundStyle(AppTheme.secondaryText)
             Text("使用 AI 编程工具后数据将自动同步")
                 .font(.system(size: 13))
-                .foregroundStyle(Color(white: 0.38))
+                .foregroundStyle(AppTheme.tertiaryText)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 200)
@@ -509,8 +509,8 @@ private struct SkeletonBlock: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 4)
-            .fill(Color(white: 0.09))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.16), lineWidth: 1))
+            .fill(AppTheme.surface)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.separator, lineWidth: 1))
             .frame(maxWidth: .infinity)
             .frame(height: height)
     }

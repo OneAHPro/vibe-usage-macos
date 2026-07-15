@@ -21,7 +21,7 @@ struct SettingsView: View {
                         HStack(spacing: 8) {
                             Text(apiKeyDisplay)
                                 .font(.system(.body, design: .monospaced))
-                                .foregroundStyle(Color(white: 0.5))
+                                .foregroundStyle(AppTheme.secondaryText)
 
                             Button(isRelinking ? "等待确认…" : "重新链接") {
                                 relinkTask = Task { await relink() }

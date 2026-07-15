@@ -51,7 +51,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.title = configuration.title
-        window.appearance = NSAppearance(named: .darkAqua)
         window.contentViewController = NSHostingController(rootView: rootView)
         window.contentMinSize = configuration.minimumContentSize
         window.collectionBehavior.insert(.fullScreenPrimary)

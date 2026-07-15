@@ -20,7 +20,7 @@ struct MainWindowControllerTests {
         #expect(window.styleMask.contains(.resizable))
         #expect(window.collectionBehavior.contains(.fullScreenPrimary))
         #expect(window.isReleasedWhenClosed == false)
-        #expect(window.appearance?.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+        #expect(window.appearance == nil)
     }
 
     @Test

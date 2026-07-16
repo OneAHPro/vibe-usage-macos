@@ -1,16 +1,26 @@
 import Foundation
 
-/// Mirrors ~/.vibe-usage/config.json structure
+/// Desktop-only account metadata. Passwords and session cookies are never
+/// written here; URLSession owns the HttpOnly cookie from the new system.
 struct VibeUsageConfig: Codable {
     var apiKey: String?
     var apiUrl: String?
     var lastSync: String?
+    var userID: Int?
+    var username: String?
+
+    var isRemoteAccountConfigured: Bool {
+        guard let userID else { return false }
+        return userID > 0
+    }
 }
 
 enum ConfigManager {
     private static let configDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".vibe-usage")
-    private static let configFile = configDir.appendingPathComponent(AppConfig.configFileName)
+    // Deliberately separate from the legacy CLI's config.json. Logging in or
+    // out of the desktop app must not overwrite a user's existing CLI config.
+    private static let configFile = configDir.appendingPathComponent(AppConfig.accountConfigFileName)
 
     static func load() -> VibeUsageConfig? {
         guard FileManager.default.fileExists(atPath: configFile.path) else {
@@ -40,6 +50,10 @@ enum ConfigManager {
 
     /// Check if config exists and has an API key
     static var isConfigured: Bool {
-        load()?.apiKey != nil
+        load()?.isRemoteAccountConfigured == true
+    }
+
+    static func clear() {
+        try? FileManager.default.removeItem(at: configFile)
     }
 }

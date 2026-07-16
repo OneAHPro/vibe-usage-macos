@@ -1,16 +1,35 @@
 import AppKit
 import SwiftUI
 
+enum DashboardPage: Equatable {
+    case usage
+    case settings
+
+    var title: String {
+        switch self {
+        case .usage: "Vibe Usage"
+        case .settings: "设置"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .usage: "AI 使用与成本仪表盘"
+        case .settings: "账号、远程数据与应用偏好"
+        }
+    }
+}
+
 struct DashboardShellView: View {
     @Environment(AppState.self) private var appState
+    @State private var selectedPage: DashboardPage = .usage
+    @State private var openFilter: FilterDimension?
+    @State private var expandedModelFamilies: Set<String> = []
 
     var body: some View {
         HStack(spacing: 0) {
             sidebar
                 .frame(width: DashboardLayout.sidebarWidth)
-
-            Divider()
-                .background(AppTheme.separator)
 
             mainContent
         }
@@ -39,12 +58,14 @@ struct DashboardShellView: View {
             .padding(.bottom, 28)
 
             sidebarSectionTitle("数据")
-            sidebarItem("Vibe Usage", icon: "chart.bar.fill", selected: true) {}
+            sidebarItem("Vibe Usage", icon: "chart.bar.fill", selected: selectedPage == .usage) {
+                selectedPage = .usage
+            }
             sidebarItem("排行榜", icon: "list.number") {
-                openURL("\(AppConfig.defaultApiUrl)/usage/rank")
+                openURL("\(AppConfig.defaultApiUrl)/rankings")
             }
             sidebarItem("数据详情", icon: "doc.text.magnifyingglass") {
-                openURL("\(AppConfig.defaultApiUrl)/usage")
+                openURL("\(AppConfig.defaultApiUrl)/console/log")
             }
 
             sidebarSectionTitle("应用")
@@ -52,8 +73,8 @@ struct DashboardShellView: View {
             sidebarItem("同步数据", icon: "arrow.triangle.2.circlepath") {
                 refreshData()
             }
-            sidebarItem("设置", icon: "gearshape") {
-                SettingsWindowController.shared.show(appState: appState)
+            sidebarItem("设置", icon: "gearshape", selected: selectedPage == .settings) {
+                selectedPage = .settings
             }
 
             Spacer(minLength: 20)
@@ -87,36 +108,93 @@ struct DashboardShellView: View {
         VStack(spacing: 0) {
             topBar
 
+            switch selectedPage {
+            case .usage:
+                usagePage
+            case .settings:
+                SettingsView(embedded: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .background(AppTheme.subtleSurface)
+    }
+
+    private var usagePage: some View {
+        ZStack(alignment: .top) {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: DashboardLayout.contentSpacing) {
                     statusBanner
-
-                    if appState.codexRateLimitEnabled || appState.claudeRateLimitEnabled {
-                        RateLimitCardView()
-                            .zIndex(30)
-                    }
 
                     if appState.isInitialDataLoad || (!appState.hasLoadedUsageData && appState.buckets.isEmpty) {
                         loadingState
                     } else if !appState.hasAnyData {
                         emptyState
                     } else {
-                        dashboardContent
+                        FilterTagsView(openFilter: $openFilter)
+                            .zIndex(20)
+                        SummaryCardsView()
+                        analyticsSection
+                        DistributionChartsView()
+                        UsageRecordsView()
                     }
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(appState.isRefreshingData ? 0.72 : 1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if appState.isRefreshingData {
+                loadingPill
+                    .padding(.top, 80)
+                    .zIndex(40)
+            }
         }
-        .background(AppTheme.subtleSurface)
+        .overlayPreferenceValue(FilterButtonAnchorPreferenceKey.self) { anchors in
+            GeometryReader { proxy in
+                if let openFilter,
+                   let anchor = anchors[openFilter],
+                   !appState.isLoadingData
+                {
+                    let buttonFrame = proxy[anchor]
+                    let viewport = CGRect(origin: .zero, size: proxy.size)
+                    if buttonFrame.intersects(viewport) {
+                        let requestedSize = CGSize(
+                            width: FilterPanelLayout.preferredWidth,
+                            height: FilterPanelLayout.panelHeight(
+                                for: openFilter,
+                                buckets: appState.buckets,
+                                expandedModelFamilies: expandedModelFamilies
+                            )
+                        )
+                        let panelFrame = DashboardLayout.filterOverlayFrame(
+                            buttonFrame: buttonFrame,
+                            panelSize: requestedSize,
+                            viewportSize: proxy.size
+                        )
+
+                        FilterPanelView(
+                            dimension: openFilter,
+                            expandedModelFamilies: $expandedModelFamilies,
+                            height: panelFrame.height
+                        )
+                        .frame(width: panelFrame.width, height: panelFrame.height)
+                        .position(x: panelFrame.midX, y: panelFrame.midY)
+                        .transaction { transaction in
+                            transaction.animation = nil
+                        }
+                        .zIndex(100)
+                    }
+                }
+            }
+        }
     }
 
     private var topBar: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text("Vibe Usage")
+                    Text(selectedPage.title)
                         .font(.system(size: 25, weight: .bold, design: .monospaced))
                         .foregroundStyle(AppTheme.primaryText)
 
@@ -131,30 +209,35 @@ struct DashboardShellView: View {
                     }
                 }
 
-                Text("AI 使用与成本仪表盘")
+                Text(selectedPage.subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(AppTheme.tertiaryText)
             }
 
             Spacer()
 
-            DashboardActionButton(title: "详情", icon: "arrow.up.right") {
-                openURL("\(AppConfig.defaultApiUrl)/usage")
-            }
-            DashboardActionButton(title: "排行榜", icon: "list.number") {
-                openURL("\(AppConfig.defaultApiUrl)/usage/rank")
-            }
-            DashboardActionButton(title: "同步数据", icon: "arrow.clockwise", disabled: appState.syncStatus == .syncing) {
-                refreshData()
-            }
-            DashboardActionButton(title: "设置", icon: "gearshape") {
-                SettingsWindowController.shared.show(appState: appState)
+            if selectedPage == .usage {
+                DashboardActionButton(title: "详情", icon: "arrow.up.right") {
+                    openURL("\(AppConfig.defaultApiUrl)/console/log")
+                }
+                DashboardActionButton(title: "排行榜", icon: "list.number") {
+                    openURL("\(AppConfig.defaultApiUrl)/rankings")
+                }
+                DashboardActionButton(title: "同步数据", icon: "arrow.clockwise", disabled: appState.syncStatus == .syncing) {
+                    refreshData()
+                }
+                DashboardActionButton(title: "设置", icon: "gearshape") {
+                    selectedPage = .settings
+                }
+            } else {
+                DashboardActionButton(title: "返回仪表盘", icon: "arrow.left") {
+                    selectedPage = .usage
+                }
             }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .background(AppTheme.surface)
-        .overlay(alignment: .bottom) { Divider().background(AppTheme.separator) }
+        .background(AppTheme.subtleSurface)
     }
 
     private var statusBanner: some View {
@@ -185,28 +268,6 @@ struct DashboardShellView: View {
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
     }
 
-    private var dashboardContent: some View {
-        ZStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: DashboardLayout.contentSpacing) {
-                FilterTagsView()
-                    .zIndex(20)
-                SummaryCardsView()
-                analyticsSection
-                DistributionChartsView()
-                UsageRecordsView()
-            }
-            .opacity(appState.isRefreshingData ? 0.72 : 1)
-
-            if appState.isRefreshingData {
-                loadingPill
-                    .padding(.top, 70)
-                    .transition(.opacity)
-                    .zIndex(40)
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: appState.isRefreshingData)
-    }
-
     private var analyticsSection: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: DashboardLayout.contentSpacing) {
@@ -221,6 +282,10 @@ struct DashboardShellView: View {
                 BarChartView()
                 ActivityHeatmapView()
             }
+        }
+        .id(appState.dashboardRenderGeneration)
+        .transaction { transaction in
+            transaction.animation = nil
         }
     }
 
@@ -244,10 +309,10 @@ struct DashboardShellView: View {
             Text("暂无数据")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(AppTheme.secondaryText)
-            Text("完成同步后，使用数据会在这里展示")
+            Text("当前账号在这个时间范围内没有使用记录")
                 .font(.system(size: 12))
                 .foregroundStyle(AppTheme.tertiaryText)
-            Button("同步数据") { refreshData() }
+            Button("重新读取") { refreshData() }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
         }
@@ -262,7 +327,7 @@ struct DashboardShellView: View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text("加载中")
+            Text(appState.usageLoadingMessage)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(AppTheme.secondaryText)
         }
@@ -358,11 +423,7 @@ struct DashboardShellView: View {
     }
 
     private func refreshData() {
-        Task {
-            async let sync: Void = appState.triggerSync()
-            async let limits: Void = appState.refreshAllRateLimits()
-            _ = await (sync, limits)
-        }
+        Task { await appState.triggerSync() }
     }
 
     private func openURL(_ string: String) {

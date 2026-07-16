@@ -7,7 +7,7 @@ struct VibeUsageApp: App {
 
     var body: some Scene {
         // AppDelegate owns the standard main window and menu-bar status item.
-        // Settings remains an explicit NSWindow through SettingsWindowController.
+        // AppDelegate owns the standard window; settings is shown inside its sidebar shell.
         Settings { EmptyView() }
     }
 }
@@ -21,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         ActivationCoordinator.shared.applyStandardApplicationPolicy()
         appState.initialize()
+
+        Task {
+            await appState.restoreSession()
+        }
 
         let mainWindowController = MainWindowController(appState: appState)
         self.mainWindowController = mainWindowController

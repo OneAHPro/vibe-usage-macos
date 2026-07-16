@@ -14,6 +14,38 @@ struct DashboardMetrics: Equatable {
     let projectCount: Int
 }
 
+/// Metrics shown in the dashboard's second card row. The new system keeps
+/// account totals (consumption and request count) separate from the selected
+/// time-range statistics used by Tokens, TPM, and RPM.
+struct SecondaryDashboardMetrics: Equatable {
+    let historicalConsumption: Double
+    let requestCount: Int
+    let statisticalTokens: Int
+    let averageTPM: Double
+    let averageRPM: Double
+
+    init(
+        accountUsedQuota: Int,
+        accountRequestCount: Int,
+        quotaPerUnit: Double,
+        statisticalTokens: Int,
+        selectedRequestCount: Int,
+        selectedRangeMinutes: Double
+    ) {
+        historicalConsumption = quotaPerUnit > 0
+            ? Double(max(accountUsedQuota, 0)) / quotaPerUnit
+            : 0
+        requestCount = max(accountRequestCount, 0)
+        self.statisticalTokens = max(statisticalTokens, 0)
+        averageTPM = selectedRangeMinutes > 0
+            ? Double(max(statisticalTokens, 0)) / selectedRangeMinutes
+            : 0
+        averageRPM = selectedRangeMinutes > 0
+            ? Double(max(selectedRequestCount, 0)) / selectedRangeMinutes
+            : 0
+    }
+}
+
 struct DashboardData {
     let buckets: [UsageBucket]
     let sessions: [UsageSession]
@@ -67,30 +99,51 @@ struct DashboardData {
     }
 }
 
-struct ActivityHeatmap: Equatable {
-    private let values: [Int: Int]
-    let maximum: Int
+enum HeatmapMetric: String, CaseIterable {
+    case token
+    case cost
 
-    init(sessions: [UsageSession], calendar: Calendar = .current) {
-        var values: [Int: Int] = [:]
-        for session in sessions {
-            guard let date = session.date else { continue }
+    var label: String {
+        switch self {
+        case .token: "Token"
+        case .cost: "费用"
+        }
+    }
+}
+
+struct ActivityHeatmap: Equatable {
+    private let values: [Int: Double]
+    let maximum: Double
+
+    init(
+        buckets: [UsageBucket],
+        metric: HeatmapMetric = .token,
+        calendar: Calendar = .current
+    ) {
+        var values: [Int: Double] = [:]
+        for bucket in buckets {
+            guard let date = bucket.date else { continue }
             let components = calendar.dateComponents([.weekday, .hour], from: date)
             guard let weekday = components.weekday, let hour = components.hour else { continue }
             let key = Self.key(weekday: weekday, hour: hour)
-            values[key, default: 0] += session.activeSeconds
+            switch metric {
+            case .token:
+                values[key, default: 0] += Double(bucket.computedTotal)
+            case .cost:
+                values[key, default: 0] += bucket.estimatedCost ?? 0
+            }
         }
         self.values = values
         self.maximum = values.values.max() ?? 0
     }
 
-    func value(weekday: Int, hour: Int) -> Int {
+    func value(weekday: Int, hour: Int) -> Double {
         values[Self.key(weekday: weekday, hour: hour), default: 0]
     }
 
     func intensity(weekday: Int, hour: Int) -> Double {
         guard maximum > 0 else { return 0 }
-        return Double(value(weekday: weekday, hour: hour)) / Double(maximum)
+        return value(weekday: weekday, hour: hour) / maximum
     }
 
     private static func key(weekday: Int, hour: Int) -> Int {

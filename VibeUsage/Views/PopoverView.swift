@@ -3,199 +3,217 @@ import SwiftUI
 /// Main dashboard content hosted inside the standard application window.
 struct PopoverView: View {
     @Environment(AppState.self) private var appState
-    @State private var deviceFlowState: DeviceFlowUIState = .idle
-    @State private var pendingUserCode: String?
-    @State private var setupError: String?
-    @State private var deviceFlowTask: Task<Void, Never>?
-
-    enum DeviceFlowUIState {
-        case idle
-        case awaitingApproval
-    }
+    @State private var username = ""
+    @State private var password = ""
+    @State private var twoFactorCode = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !appState.isConfigured {
-                unconfiguredView
+        Group {
+            if appState.isCheckingSession {
+                checkingSessionView
+            } else if !appState.isConfigured {
+                loginView
             } else {
                 DashboardShellView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppTheme.windowBackground)
+        .background(AppTheme.subtleSurface)
     }
 
-    // MARK: - Unconfigured State
+    private var checkingSessionView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.regular)
+            Text("正在连接 new 系统…")
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.secondaryText)
+        }
+    }
 
-    private var unconfiguredView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Title
-            HStack(spacing: 6) {
-                Text("Vibe Usage")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(AppTheme.primaryText)
-                if AppConfig.isDev {
-                    Text("DEBUG")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.orange.opacity(0.15))
-                        .cornerRadius(3)
-                }
-            }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+    private var loginView: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 36)
 
-            Divider()
-                .background(AppTheme.separator)
+            VStack(alignment: .leading, spacing: 22) {
+                brand
 
-            VStack(alignment: .leading, spacing: 16) {
-                if let pendingUserCode {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppTheme.secondaryText)
-                        Text("请确认浏览器中显示的验证码与下方一致")
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppTheme.secondaryText)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppTheme.subtleSurface)
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.separator, lineWidth: 1))
-                    .cornerRadius(4)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(appState.requiresTwoFactor ? "输入验证码" : "登录 new 系统")
+                        .font(.system(size: 23, weight: .bold, design: .monospaced))
+                        .foregroundStyle(AppTheme.primaryText)
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("验证码")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .textCase(.uppercase)
-                        Text(pendingUserCode)
-                            .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(AppTheme.primaryText)
-                            .tracking(3)
-                    }
-                }
-
-                if let setupError {
-                    Text(setupError)
+                    Text(appState.requiresTwoFactor ? "请输入身份验证器中显示的 6 位验证码。" : "登录后显示你在 new 系统中的使用数据。")
                         .font(.system(size: 12))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(AppTheme.secondaryText)
                 }
 
-                Button {
-                    let task = Task { await runDeviceFlow() }
-                    deviceFlowTask = task
-                } label: {
-                    HStack(spacing: 6) {
-                        if deviceFlowState == .awaitingApproval {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(AppTheme.windowBackground)
-                        }
-                        Text(deviceFlowState == .awaitingApproval ? "等待浏览器确认…" : "登录并链接数据")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                if appState.requiresTwoFactor {
+                    twoFactorForm
+                } else {
+                    passwordForm
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(AppTheme.primaryText)
-                .foregroundStyle(AppTheme.windowBackground)
-                .disabled(deviceFlowState == .awaitingApproval)
 
-                if deviceFlowState == .awaitingApproval {
-                    Button {
-                        cancelDeviceFlow()
-                    } label: {
-                        Text("取消，重新开始")
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                    Text("安全连接到 api.anhepro.com")
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(AppTheme.tertiaryText)
+            }
+            .padding(28)
+            .frame(maxWidth: 410)
+            .background(AppTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.separator, lineWidth: 1))
+
+            Spacer(minLength: 36)
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private var brand: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(AppTheme.primaryText, lineWidth: 1.5)
+                Text("V")
+                    .font(.system(size: 14, weight: .black, design: .monospaced))
+                    .foregroundStyle(AppTheme.primaryText)
+            }
+            .frame(width: 28, height: 28)
+
+            Text("Vibe Usage")
+                .font(.system(size: 15, weight: .bold, design: .monospaced))
+                .foregroundStyle(AppTheme.primaryText)
+
+            if AppConfig.isDev {
+                Text("DEBUG")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private var passwordForm: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("用户名或邮箱")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(AppTheme.secondaryText)
-                }
+                TextField("请输入用户名或邮箱", text: $username)
+                    .textFieldStyle(.roundedBorder)
+                    .textContentType(.username)
+                    .onSubmit(submitPasswordLogin)
             }
-            .padding(16)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("密码")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(AppTheme.secondaryText)
+                SecureField("请输入密码", text: $password)
+                    .textFieldStyle(.roundedBorder)
+                    .textContentType(.password)
+                    .onSubmit(submitPasswordLogin)
+            }
+
+            authenticationError
+
+            Button(action: submitPasswordLogin) {
+                loginButtonLabel("登录")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AppTheme.primaryText)
+            .foregroundStyle(AppTheme.windowBackground)
+            .disabled(username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty || appState.isAuthenticating)
         }
     }
 
-
-    private func runDeviceFlow() async {
-        setupError = nil
-        deviceFlowState = .awaitingApproval
-        pendingUserCode = nil
-        defer { deviceFlowState = .idle }
-
-        let baseURL = AppConfig.defaultApiUrl
-        let hostname = Host.current().localizedName?.replacingOccurrences(of: ".local", with: "")
-        let device: DeviceCodeResponse
-        do {
-            device = try await requestDeviceCode(baseURL: baseURL, clientName: "Vibe Usage.app", hostname: hostname)
-        } catch {
-            setupError = "无法连接服务端：\(error.localizedDescription)"
-            return
-        }
-
-        pendingUserCode = device.userCode
-        if let url = URL(string: device.verificationUriComplete) {
-            NSWorkspace.shared.open(url)
-        }
-
-        let intervalNs = UInt64(max(device.interval, 1)) * 1_000_000_000
-        let deadline = Date().addingTimeInterval(TimeInterval(device.expiresIn))
-
-        while Date() < deadline {
-            if Task.isCancelled { return }
-            try? await Task.sleep(nanoseconds: intervalNs)
-            if Task.isCancelled { return }
-            let res: DevicePollResponse
-            do {
-                res = try await pollDeviceCode(baseURL: baseURL, deviceCode: device.deviceCode)
-            } catch {
-                continue
+    private var twoFactorForm: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("6 位验证码")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(AppTheme.secondaryText)
+                TextField("000000", text: $twoFactorCode)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .onChange(of: twoFactorCode) { _, value in
+                        twoFactorCode = String(value.filter(\.isNumber).prefix(6))
+                    }
+                    .onSubmit(submitTwoFactor)
             }
-            if let apiKey = res.apiKey {
-                pendingUserCode = nil
-                appState.configure(apiKey: apiKey, apiUrl: res.apiUrl ?? baseURL)
-                await appState.fetchUsageData()
-                return
+
+            authenticationError
+
+            Button(action: submitTwoFactor) {
+                loginButtonLabel("验证并进入")
             }
-            switch res.error {
-            case "authorization_pending", nil:
-                continue
-            case "access_denied":
-                setupError = DeviceFlowError.denied.localizedDescription
-                pendingUserCode = nil
-                return
-            case "expired_token":
-                setupError = DeviceFlowError.expired.localizedDescription
-                pendingUserCode = nil
-                return
-            default:
-                setupError = "服务端返回未知错误：\(res.error ?? "unknown")"
-                pendingUserCode = nil
-                return
+            .buttonStyle(.borderedProminent)
+            .tint(AppTheme.primaryText)
+            .foregroundStyle(AppTheme.windowBackground)
+            .disabled(twoFactorCode.count != 6 || appState.isAuthenticating)
+
+            Button("返回登录") {
+                twoFactorCode = ""
+                appState.cancelTwoFactor()
             }
+            .buttonStyle(.plain)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(AppTheme.secondaryText)
+            .frame(maxWidth: .infinity)
         }
-        setupError = DeviceFlowError.expired.localizedDescription
-        pendingUserCode = nil
     }
 
-    /// Abort an in-flight device flow so the user can re-link immediately
-    /// instead of waiting out the 15-minute timeout. Cancelling the task makes
-    /// runDeviceFlow() return at its next checkpoint; its `defer` resets the
-    /// UI state back to idle.
-    private func cancelDeviceFlow() {
-        deviceFlowTask?.cancel()
-        deviceFlowTask = nil
-        pendingUserCode = nil
-        setupError = nil
-        deviceFlowState = .idle
+    @ViewBuilder
+    private var authenticationError: some View {
+        if let error = appState.authenticationError {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "exclamationmark.circle.fill")
+                Text(error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.red)
+        }
     }
 
+    private func loginButtonLabel(_ title: String) -> some View {
+        HStack(spacing: 7) {
+            if appState.isAuthenticating {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 30)
+    }
+
+    private func submitPasswordLogin() {
+        guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !password.isEmpty,
+              !appState.isAuthenticating
+        else { return }
+        Task {
+            await appState.login(
+                username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password
+            )
+            if appState.requiresTwoFactor || appState.isConfigured {
+                password = ""
+            }
+        }
+    }
+
+    private func submitTwoFactor() {
+        guard twoFactorCode.count == 6, !appState.isAuthenticating else { return }
+        Task {
+            await appState.verifyTwoFactor(code: twoFactorCode)
+            if appState.isConfigured {
+                twoFactorCode = ""
+            }
+        }
+    }
 }

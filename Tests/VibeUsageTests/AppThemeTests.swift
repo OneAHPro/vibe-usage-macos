@@ -30,6 +30,13 @@ struct AppThemeTests {
         }
     }
 
+    @Test
+    func costAccentIsGreen() {
+        let color = NSColor(AppTheme.costAccent).usingColorSpace(.sRGB) ?? NSColor(AppTheme.costAccent)
+        #expect(color.greenComponent > color.redComponent)
+        #expect(color.greenComponent > color.blueComponent)
+    }
+
     private func contrastRatio(_ first: NSColor, _ second: NSColor) -> Double {
         let firstLuminance = relativeLuminance(first)
         let secondLuminance = relativeLuminance(second)

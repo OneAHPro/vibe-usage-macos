@@ -1,6 +1,18 @@
 import Foundation
 
 enum Formatters {
+    /// Format an exact integer with grouping separators for hover details.
+    static func formatExactNumber(_ n: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+        formatter.groupingSeparator = ","
+        formatter.groupingSize = 3
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
     /// Format large numbers with compact notation: 1234 → "1,234", 45200 → "45.2K"
     static func formatNumber(_ n: Int) -> String {
         if n >= 1_000_000 {
@@ -21,6 +33,12 @@ enum Formatters {
         if cost == 0 { return "$0.00" }
         if cost < 0.01 { return String(format: "$%.4f", cost) }
         return String(format: "$%.2f", cost)
+    }
+
+    /// Match the new system dashboard's average TPM/RPM precision.
+    static func formatRate(_ rate: Double) -> String {
+        guard rate.isFinite else { return "0.000" }
+        return String(format: "%.3f", max(rate, 0))
     }
 
     /// Format date for chart axis: "2/25"
@@ -63,6 +81,21 @@ enum Formatters {
             return localFormatter.string(from: date)
         }
         return hourKey
+    }
+
+    /// Format a server UTC timestamp for detailed records in the user's local
+    /// timezone. Keeping this conversion at the presentation edge prevents
+    /// eight-hour offsets from leaking into the macOS UI.
+    static func formatDateTime(_ value: String, timeZone: TimeZone = .current) -> String {
+        guard let date = ISO8601Parser.date(from: value) else {
+            return String(value.prefix(16)).replacingOccurrences(of: "T", with: " ")
+        }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
     }
 
     /// Format duration in seconds: 90 → "1m", 3661 → "1h 1m", 86400+ → "1d 2h"

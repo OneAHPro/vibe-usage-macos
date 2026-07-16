@@ -27,7 +27,7 @@ enum TimeRange: String, CaseIterable {
     case sevenDays = "7D"
     case thirtyDays = "30D"
     case ninetyDays = "90D"
-    case custom = "custom"
+    case all = "all"
 
     var fixedDayCount: Int {
         switch self {
@@ -35,13 +35,22 @@ enum TimeRange: String, CaseIterable {
         case .sevenDays: 7
         case .thirtyDays: 30
         case .ninetyDays: 90
-        case .custom: 7
+        case .all: 1
         }
     }
 
     /// Trend chart bucket granularity. Hour-granularity for both today and the
     /// rolling 24h; day-granularity for the longer ranges.
     var isHourly: Bool { self == .today || self == .oneDay }
+
+    var displayLabel: String {
+        switch self {
+        case .today: "今天"
+        case .oneDay: "24H"
+        case .all: "全部"
+        default: rawValue
+        }
+    }
 
     /// Inclusive lower bound on bucket / session timestamps when this range is
     /// active. nil means "show all fetched data" (which already matches the
@@ -85,10 +94,13 @@ final class AppState {
 
     // MARK: - Dashboard Data
     var buckets: [UsageBucket] = []
+    var heatmapBuckets: [UsageBucket] = []
     var sessions: [UsageSession] = []
     var hasAnyData: Bool = false
     var isLoadingData: Bool = false
     var hasLoadedUsageData: Bool = false
+    var isLoadingHeatmap: Bool = false
+    var dashboardRenderGeneration: Int = 0
 
     var isInitialDataLoad: Bool {
         isLoadingData && !hasLoadedUsageData && buckets.isEmpty
@@ -98,15 +110,24 @@ final class AppState {
         isLoadingData && hasLoadedUsageData
     }
 
+    var usageLoadingMessage: String {
+        timeRange == .all ? "正在加载全部数据…" : "加载中"
+    }
+
     // MARK: - Dashboard Controls
     var timeRange: TimeRange = .oneDay
-    var customRangeFrom: Date = Calendar.current.date(byAdding: .day, value: -6, to: Calendar.current.startOfDay(for: Date())) ?? Date()
-    var customRangeTo: Date = Calendar.current.startOfDay(for: Date())
+    var loadedTimeRange: TimeRange = .oneDay
     var chartMode: ChartMode = .token
     var filters: FilterState = .init()
 
+    var presentedTimeRange: TimeRange { loadedTimeRange }
+
     var currentQueryRange: UsageQueryRange {
-        switch timeRange {
+        usageQueryRange(for: timeRange)
+    }
+
+    func usageQueryRange(for range: TimeRange) -> UsageQueryRange {
+        switch range {
         case .today:
             return .from(Calendar.current.startOfDay(for: Date()))
         case .oneDay:
@@ -117,34 +138,34 @@ final class AppState {
             return .days(30)
         case .ninetyDays:
             return .days(90)
-        case .custom:
-            let bounds = normalizedCustomRange
-            return .custom(from: bounds.from, to: bounds.to)
+        case .all:
+            return .all
         }
+    }
+
+    var selectedRangeMinutes: Double {
+        let now = Date()
+        if presentedTimeRange == .all {
+            let firstDate = buckets.compactMap(\.date).min() ?? now
+            return max(now.timeIntervalSince(firstDate) / 60, 0)
+        }
+        return max(usageQueryRange(for: presentedTimeRange).dateInterval(now: now).duration / 60, 0)
     }
 
     var visibleDayCount: Int {
-        if timeRange != .custom { return timeRange.fixedDayCount }
-        let bounds = normalizedCustomRange
+        guard presentedTimeRange == .all else { return presentedTimeRange.fixedDayCount }
         let calendar = Calendar.current
-        let from = calendar.startOfDay(for: bounds.from)
-        let to = calendar.startOfDay(for: bounds.to)
+        let to = calendar.startOfDay(for: Date())
+        let from = buckets.compactMap(\.date).min().map { calendar.startOfDay(for: $0) } ?? to
         let days = calendar.dateComponents([.day], from: from, to: to).day ?? 0
         return max(days + 1, 1)
-    }
-
-    var normalizedCustomRange: (from: Date, to: Date) {
-        if customRangeFrom <= customRangeTo {
-            return (customRangeFrom, customRangeTo)
-        }
-        return (customRangeTo, customRangeFrom)
     }
 
     var dashboardData: DashboardData {
         DashboardData(
             buckets: buckets,
             sessions: sessions,
-            cutoff: timeRange.startCutoff,
+            cutoff: presentedTimeRange.startCutoff,
             filters: filters
         )
     }
@@ -153,12 +174,29 @@ final class AppState {
         dashboardData.sessions
     }
 
+    var filteredHeatmapBuckets: [UsageBucket] {
+        DashboardData(
+            buckets: heatmapBuckets,
+            sessions: [],
+            cutoff: presentedTimeRange.startCutoff,
+            filters: filters
+        ).buckets
+    }
+
     // MARK: - Config
     var isConfigured: Bool = false
-    var runtimeAvailable: Bool = true
+    var runtimeAvailable: Bool = false
+    var isCheckingSession: Bool = false
+    var isAuthenticating: Bool = false
+    var requiresTwoFactor: Bool = false
+    var authenticationError: String?
+    var accountUsername: String?
+    var accountUsedQuota: Int = 0
+    var accountRequestCount: Int = 0
+    var quotaPerUnit: Double = 500_000
 
     // MARK: - Rate Limits (subscription quota for Claude + Codex)
-    var codexRateLimitEnabled: Bool = true {
+    var codexRateLimitEnabled: Bool = false {
         didSet { UserDefaults.standard.set(codexRateLimitEnabled, forKey: "codexRateLimitEnabled") }
     }
     var rateLimits: [ProviderRateLimit] = []
@@ -188,7 +226,7 @@ final class AppState {
     /// apply that cutoff; the menu bar must too, or toggling 今天 ↔ 24H leaves
     /// the menu bar stuck on the full-24h total (see vibe-cafe@f5f022b).
     private var menuBarBuckets: [UsageBucket] {
-        guard let cutoff = timeRange.startCutoff else { return buckets }
+        guard let cutoff = presentedTimeRange.startCutoff else { return buckets }
         return buckets.filter { bucket in
             guard let date = bucket.date else { return true }
             return date >= cutoff
@@ -213,48 +251,86 @@ final class AppState {
         // Load menu bar prefs
         self.showCostInMenuBar = UserDefaults.standard.object(forKey: "showCostInMenuBar") as? Bool ?? true
         self.showTokensInMenuBar = UserDefaults.standard.object(forKey: "showTokensInMenuBar") as? Bool ?? false
-        let legacyRateLimitEnabled = UserDefaults.standard.object(forKey: "rateLimitMonitoringEnabled") as? Bool
-        self.codexRateLimitEnabled = UserDefaults.standard.object(forKey: "codexRateLimitEnabled") as? Bool ?? legacyRateLimitEnabled ?? true
-        self.claudeRateLimitEnabled = UserDefaults.standard.bool(forKey: "claudeRateLimitEnabled")
-
-        // Self-heal only while Claude monitoring is enabled. When disabled,
-        // restore Claude Code's statusline command and keep that provider idle.
-        if claudeRateLimitEnabled {
-            StatuslineHook.verifyAndRepair(enabled: true)
-        } else {
-            _ = StatuslineHook.uninstall()
-        }
+        self.codexRateLimitEnabled = false
+        self.claudeRateLimitEnabled = false
+        UserDefaults.standard.set(false, forKey: "codexRateLimitEnabled")
+        UserDefaults.standard.set(false, forKey: "claudeRateLimitEnabled")
+        _ = StatuslineHook.uninstall()
 
         let loadedConfig = ConfigManager.load()
         self.config = loadedConfig
-        self.isConfigured = loadedConfig?.apiKey != nil
+        self.isConfigured = loadedConfig?.isRemoteAccountConfigured == true
+        self.accountUsername = loadedConfig?.username
+        self.isCheckingSession = isConfigured
 
-        let runtime = RuntimeDetector.detect()
-        self.runtimeAvailable = runtime != nil
+    }
 
-        if isConfigured {
-            startScheduler()
+    func restoreSession() async {
+        guard let config, let userID = config.userID else {
+            isCheckingSession = false
+            return
         }
+        isCheckingSession = true
+        defer { isCheckingSession = false }
 
-        // Rate limits are independent of configuration — both Codex and Claude
-        // read local files (no auth). Start only for enabled providers.
-        if codexRateLimitEnabled || claudeRateLimitEnabled {
-            startRateLimitCoordinator()
+        do {
+            let client = APIClient(baseURL: config.apiUrl ?? AppConfig.defaultApiUrl, userID: userID)
+            let user = try await client.fetchCurrentUser()
+            finishAuthentication(user, apiURL: config.apiUrl ?? AppConfig.defaultApiUrl)
+            await fetchUsageData()
+        } catch {
+            clearRemoteSession()
         }
     }
 
-    /// Save config to disk and start scheduler.
-    func configure(apiKey: String, apiUrl: String = AppConfig.defaultApiUrl) {
-        var cfg = ConfigManager.load() ?? VibeUsageConfig()
-        cfg.apiKey = apiKey
-        cfg.apiUrl = apiUrl
-        ConfigManager.save(cfg)
+    func login(username: String, password: String) async {
+        guard !isAuthenticating else { return }
+        authenticationError = nil
+        isAuthenticating = true
+        defer { isAuthenticating = false }
 
-        self.config = ConfigManager.load()
-        self.isConfigured = self.config?.apiKey != nil
-        if isConfigured {
-            startScheduler()
+        do {
+            let client = APIClient(baseURL: AppConfig.defaultApiUrl)
+            switch try await client.login(username: username, password: password) {
+            case .requiresTwoFactor:
+                accountUsername = username
+                requiresTwoFactor = true
+            case .authenticated(let user):
+                finishAuthentication(user, apiURL: AppConfig.defaultApiUrl)
+                await fetchUsageData()
+            }
+        } catch {
+            authenticationError = error.localizedDescription
         }
+    }
+
+    func verifyTwoFactor(code: String) async {
+        guard !isAuthenticating else { return }
+        authenticationError = nil
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+
+        do {
+            let client = APIClient(baseURL: AppConfig.defaultApiUrl)
+            let user = try await client.verifyTwoFactor(code: code)
+            finishAuthentication(user, apiURL: AppConfig.defaultApiUrl)
+            await fetchUsageData()
+        } catch {
+            authenticationError = error.localizedDescription
+        }
+    }
+
+    func cancelTwoFactor() {
+        requiresTwoFactor = false
+        authenticationError = nil
+    }
+
+    func logout() async {
+        if let config, let userID = config.userID {
+            let client = APIClient(baseURL: config.apiUrl ?? AppConfig.defaultApiUrl, userID: userID)
+            try? await client.logout()
+        }
+        clearRemoteSession()
     }
 
     // MARK: - Sync
@@ -262,31 +338,23 @@ final class AppState {
     func triggerSync() async {
         guard syncStatus != .syncing else { return }
         syncStatus = .syncing
+        await fetchUsageData()
+        guard isConfigured else { return }
+        if case .error = syncStatus { return }
 
-        let result = await SyncEngine.shared.runSync()
-
-        switch result {
-        case .success(let message):
-            syncStatus = .success
-            lastSyncTime = Date()
-            lastSyncMessage = message
-            // Refresh dashboard data after sync
-            await fetchUsageData()
-            // Reset to idle after a delay
-            try? await Task.sleep(for: .seconds(3))
-            if syncStatus == .success {
-                syncStatus = .idle
-            }
-        case .failure(let error):
-            syncStatus = .error(error.localizedDescription)
-            lastSyncMessage = error.localizedDescription
+        syncStatus = .success
+        lastSyncTime = Date()
+        lastSyncMessage = "new 系统数据已更新"
+        try? await Task.sleep(for: .seconds(3))
+        if syncStatus == .success {
+            syncStatus = .idle
         }
     }
 
     // MARK: - Data Fetching
 
     func fetchUsageData() async {
-        guard let config, let apiKey = config.apiKey else { return }
+        guard let config, let userID = config.userID else { return }
         guard !isLoadingData else { return }
         isLoadingData = true
         defer {
@@ -294,20 +362,56 @@ final class AppState {
             hasLoadedUsageData = true
             isLoadingData = false
         }
+        await Task.yield()
 
         let apiUrl = config.apiUrl ?? AppConfig.defaultApiUrl
-        let client = APIClient(baseURL: apiUrl, apiKey: apiKey)
+        let client = APIClient(baseURL: apiUrl, userID: userID)
+        isLoadingHeatmap = true
+        let requestedTimeRange = timeRange
+        let requestedQueryRange = usageQueryRange(for: requestedTimeRange)
 
         do {
-            let response = try await client.fetchUsage(range: currentQueryRange)
-            withAnimation(.easeInOut(duration: 0.25)) {
-                buckets = response.buckets
-                sessions = response.sessions ?? []
-                hasAnyData = response.hasAnyData
+            async let usageRequest = client.fetchUsage(range: requestedQueryRange)
+            async let accountRequest = client.fetchCurrentUser()
+            async let quotaRequest = client.fetchQuotaPerUnit()
+
+            let response = try await usageRequest
+            let refreshedUser = try? await accountRequest
+            let refreshedQuotaPerUnit = await quotaRequest
+            applyUsageResponse(response, for: requestedTimeRange)
+            if let refreshedUser {
+                updateAccountMetrics(from: refreshedUser)
             }
+            if refreshedQuotaPerUnit > 0 {
+                quotaPerUnit = refreshedQuotaPerUnit
+            }
+            syncStatus = syncStatus == .syncing ? .syncing : .idle
+            lastSyncTime = Date()
+            lastSyncMessage = "new 系统数据已更新"
+            isLoadingHeatmap = false
+            authenticationError = nil
         } catch {
-            // Silently fail — dashboard shows stale data or empty state
-            print("Failed to fetch usage data: \(error)")
+            isLoadingHeatmap = false
+            timeRange = loadedTimeRange
+            if let apiError = error as? APIClient.APIError, case .unauthorized = apiError {
+                clearRemoteSession()
+            } else {
+                syncStatus = .error(error.localizedDescription)
+                lastSyncMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func applyUsageResponse(_ response: UsageResponse, for range: TimeRange) {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            buckets = response.buckets
+            sessions = response.sessions ?? []
+            hasAnyData = response.hasAnyData
+            heatmapBuckets = response.buckets
+            loadedTimeRange = range
+            dashboardRenderGeneration &+= 1
         }
     }
 
@@ -441,15 +545,74 @@ final class AppState {
     }
 
     private func startScheduler() {
+        syncScheduler?.stop()
         syncScheduler = SyncScheduler(interval: 1800) { [weak self] in
             await self?.triggerSync()
         }
         syncScheduler?.start()
+    }
 
-        // Fetch the dashboard immediately so the menu bar populates without waiting for
-        // the CLI subprocess (which can take 5-30s, or hang if Node isn't installed).
-        Task { await fetchUsageData() }
-        // Run the full sync (CLI upload + fetch) in parallel as the background pipeline.
-        Task { await triggerSync() }
+    private func finishAuthentication(
+        _ user: AuthenticatedUser,
+        apiURL: String
+    ) {
+        let config = VibeUsageConfig(
+            apiKey: nil,
+            apiUrl: apiURL,
+            lastSync: nil,
+            userID: user.id,
+            username: user.username
+        )
+        ConfigManager.save(config)
+        self.config = config
+        accountUsername = user.displayName?.isEmpty == false ? user.displayName : user.username
+        updateAccountMetrics(from: user)
+        isConfigured = true
+        isCheckingSession = false
+        requiresTwoFactor = false
+        authenticationError = nil
+        startScheduler()
+    }
+
+    private func clearRemoteSession() {
+        let apiURL = config?.apiUrl ?? AppConfig.defaultApiUrl
+        if let url = URL(string: apiURL), let cookies = HTTPCookieStorage.shared.cookies(for: url) {
+            for cookie in cookies {
+                HTTPCookieStorage.shared.deleteCookie(cookie)
+            }
+        }
+
+        syncScheduler?.stop()
+        syncScheduler = nil
+        ConfigManager.clear()
+        config = nil
+        isConfigured = false
+        isCheckingSession = false
+        isAuthenticating = false
+        requiresTwoFactor = false
+        accountUsername = nil
+        accountUsedQuota = 0
+        accountRequestCount = 0
+        quotaPerUnit = 500_000
+        authenticationError = nil
+        buckets = []
+        heatmapBuckets = []
+        sessions = []
+        timeRange = .oneDay
+        loadedTimeRange = .oneDay
+        hasAnyData = false
+        hasLoadedUsageData = false
+        isLoadingData = false
+        isLoadingHeatmap = false
+        syncStatus = .idle
+    }
+
+    private func updateAccountMetrics(from user: AuthenticatedUser) {
+        if let usedQuota = user.usedQuota {
+            accountUsedQuota = max(usedQuota, 0)
+        }
+        if let requestCount = user.requestCount {
+            accountRequestCount = max(requestCount, 0)
+        }
     }
 }

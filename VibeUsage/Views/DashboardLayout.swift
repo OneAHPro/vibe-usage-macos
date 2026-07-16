@@ -1,8 +1,24 @@
 import SwiftUI
 
+struct HeatmapCellTarget: Equatable {
+    let row: Int
+    let hour: Int
+}
+
 enum DashboardLayout {
     static let sidebarWidth: CGFloat = 188
     static let contentSpacing: CGFloat = 12
+    static let chartAxisLabelWidth: CGFloat = 46
+    static let heatmapWeekdayLabelWidth: CGFloat = 30
+    static let heatmapColumnSpacing: CGFloat = 4
+    static let heatmapRowSpacing: CGFloat = 7
+    static let recordColumnTitles = [
+        "日期", "终端", "工具", "模型", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
+    ]
+    static let recordMinimumTableWidth: CGFloat = 950
+    static let recordEdgeInset: CGFloat = 16
+    private static let recordBaseColumnWidths: [CGFloat] = [130, 110, 85, 135, 105, 125, 130, 130]
+    private static let recordExtraWidthWeights: [CGFloat] = [0.24, 0.24, 0, 0, 0, 0.16, 0.16, 0.20]
 
     static func summaryColumnCount(for width: CGFloat) -> Int {
         width >= 900 ? 5 : 2
@@ -10,6 +26,109 @@ enum DashboardLayout {
 
     static func analyticsColumnCount(for width: CGFloat) -> Int {
         width >= 900 ? 2 : 1
+    }
+
+    static func heatmapCellSize(for width: CGFloat) -> CGFloat {
+        let spacingCount: CGFloat = 24
+        let available = width - heatmapWeekdayLabelWidth - heatmapColumnSpacing * spacingCount
+        return min(max(available / 24, 5), 14)
+    }
+
+    static func heatmapGridWidth(cellSize: CGFloat) -> CGFloat {
+        heatmapWeekdayLabelWidth
+            + heatmapColumnSpacing * 24
+            + cellSize * 24
+    }
+
+    static func heatmapPlotHeight(cellSize: CGFloat) -> CGFloat {
+        cellSize * 7 + heatmapRowSpacing * 6
+    }
+
+    static func heatmapCellTarget(
+        at point: CGPoint,
+        cellSize: CGFloat
+    ) -> HeatmapCellTarget? {
+        guard cellSize > 0 else { return nil }
+
+        let firstCellX = heatmapWeekdayLabelWidth + heatmapColumnSpacing
+        let localX = point.x - firstCellX
+        guard localX >= 0, point.y >= 0 else { return nil }
+
+        let columnStep = cellSize + heatmapColumnSpacing
+        let rowStep = cellSize + heatmapRowSpacing
+        let hour = Int(localX / columnStep)
+        let row = Int(point.y / rowStep)
+
+        guard (0..<24).contains(hour), (0..<7).contains(row) else { return nil }
+        guard localX - CGFloat(hour) * columnStep < cellSize else { return nil }
+        guard point.y - CGFloat(row) * rowStep < cellSize else { return nil }
+        return HeatmapCellTarget(row: row, hour: hour)
+    }
+
+    static func visibleChartLabelIndices(count: Int, interval: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        return Array(stride(from: 0, to: count, by: max(interval, 1)))
+    }
+
+    static func filterContainerHeight(
+        rowHeight: CGFloat,
+        panelHeight _: CGFloat?,
+        verticalGap _: CGFloat
+    ) -> CGFloat {
+        rowHeight
+    }
+
+    static func filterDropdownX(
+        index: Int,
+        buttonCount: Int,
+        availableWidth: CGFloat,
+        gap: CGFloat,
+        panelWidth: CGFloat
+    ) -> CGFloat {
+        guard buttonCount > 0, availableWidth > panelWidth else { return 0 }
+        let count = CGFloat(buttonCount)
+        let buttonWidth = (availableWidth - gap * CGFloat(buttonCount - 1)) / count
+        let buttonCenter = CGFloat(index) * (buttonWidth + gap) + buttonWidth / 2
+        let centered = buttonCenter - panelWidth / 2
+        return min(max(0, centered), availableWidth - panelWidth)
+    }
+
+    static func filterOverlayFrame(
+        buttonFrame: CGRect,
+        panelSize: CGSize,
+        viewportSize: CGSize,
+        gap: CGFloat = 6,
+        edgeInset: CGFloat = 4
+    ) -> CGRect {
+        let availableWidth = max(viewportSize.width - edgeInset * 2, 0)
+        let availableHeight = max(viewportSize.height - edgeInset * 2, 0)
+        let width = min(panelSize.width, availableWidth)
+        let height = min(panelSize.height, availableHeight)
+        let minX = edgeInset
+        let maxX = max(edgeInset, viewportSize.width - edgeInset - width)
+        let x = min(max(buttonFrame.midX - width / 2, minX), maxX)
+
+        let belowY = buttonFrame.maxY + gap
+        let aboveY = buttonFrame.minY - gap - height
+        let maxY = max(edgeInset, viewportSize.height - edgeInset - height)
+        let y: CGFloat
+        if belowY + height <= viewportSize.height - edgeInset {
+            y = belowY
+        } else if aboveY >= edgeInset {
+            y = aboveY
+        } else {
+            y = min(max(belowY, edgeInset), maxY)
+        }
+
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    static func recordColumnWidths(for availableWidth: CGFloat) -> [CGFloat] {
+        let tableWidth = max(availableWidth, recordMinimumTableWidth)
+        let extraWidth = tableWidth - recordMinimumTableWidth
+        return zip(recordBaseColumnWidths, recordExtraWidthWeights).map { base, weight in
+            base + extraWidth * weight
+        }
     }
 }
 

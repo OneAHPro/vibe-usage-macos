@@ -4,6 +4,11 @@ import Testing
 
 struct DashboardDataTests {
     @Test
+    func firstSummaryCardUsesStatisticalConsumptionLabel() {
+        #expect(SummaryCardLabels.statisticalConsumption == "统计消耗")
+    }
+
+    @Test
     func filtersAndCalculatesAllDashboardMetrics() {
         let includedBucket = bucket(
             source: "codex",
@@ -79,7 +84,7 @@ struct DashboardDataTests {
                 output: 0,
                 reasoning: 0,
                 cached: 0,
-                cost: 0
+                cost: 1.25
             )
         }
 
@@ -92,46 +97,115 @@ struct DashboardDataTests {
     }
 
     @Test
-    func heatmapAggregatesSessionsByWeekdayAndHour() {
+    func heatmapAggregatesTokensByWeekdayAndHour() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let sessions = [
-            session(
+        let buckets = [
+            bucket(
                 source: "codex",
                 project: "radar",
-                firstMessageAt: "2026-07-13T09:10:00Z",
-                duration: 180,
-                active: 120,
-                messages: 2,
-                userMessages: 1
+                bucketStart: "2026-07-13T09:10:00Z",
+                input: 120,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 1.25
             ),
-            session(
+            bucket(
                 source: "codex",
                 project: "radar",
-                firstMessageAt: "2026-07-13T09:50:00Z",
-                duration: 60,
-                active: 60,
-                messages: 1,
-                userMessages: 1
+                bucketStart: "2026-07-13T09:50:00Z",
+                input: 60,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 0.75
             ),
-            session(
+            bucket(
                 source: "codex",
                 project: "radar",
-                firstMessageAt: "2026-07-13T10:05:00Z",
-                duration: 60,
-                active: 60,
-                messages: 1,
-                userMessages: 1
+                bucketStart: "2026-07-13T10:05:00Z",
+                input: 60,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 0.5
             ),
         ]
 
-        let heatmap = ActivityHeatmap(sessions: sessions, calendar: calendar)
+        let heatmap = ActivityHeatmap(buckets: buckets, calendar: calendar)
 
         #expect(heatmap.value(weekday: 2, hour: 9) == 180)
         #expect(heatmap.value(weekday: 2, hour: 10) == 60)
         #expect(heatmap.maximum == 180)
         #expect(heatmap.intensity(weekday: 2, hour: 9) == 1)
         #expect(abs(heatmap.intensity(weekday: 2, hour: 10) - (1.0 / 3.0)) < 0.000_001)
+
+        let costHeatmap = ActivityHeatmap(buckets: buckets, metric: .cost, calendar: calendar)
+        #expect(costHeatmap.value(weekday: 2, hour: 9) == 2)
+        #expect(costHeatmap.value(weekday: 2, hour: 10) == 0.5)
+        #expect(costHeatmap.intensity(weekday: 2, hour: 10) == 0.25)
+        #expect(HeatmapMetric.allCases.map(\.label) == ["Token", "费用"])
+    }
+
+    @Test
+    func parsesFractionalSecondTimestampsReturnedByUsageAPI() {
+        let apiSession = session(
+            source: "codex",
+            project: "radar",
+            firstMessageAt: "2026-07-15T10:44:39.051Z",
+            duration: 1_485,
+            active: 1_485,
+            messages: 2,
+            userMessages: 1
+        )
+        let apiBucket = bucket(
+            source: "codex",
+            project: "radar",
+            bucketStart: "2026-07-15T10:00:00.000Z",
+            input: 1,
+            output: 1,
+            reasoning: 0,
+            cached: 0,
+            cost: 0
+        )
+
+        #expect(apiSession.date != nil)
+        #expect(apiBucket.date != nil)
+    }
+
+    @Test
+    func secondaryCardsMatchNewSystemMetricSemantics() {
+        let metrics = SecondaryDashboardMetrics(
+            accountUsedQuota: 750_000,
+            accountRequestCount: 321,
+            quotaPerUnit: 500_000,
+            statisticalTokens: 120_000,
+            selectedRequestCount: 60,
+            selectedRangeMinutes: 120
+        )
+
+        #expect(metrics.historicalConsumption == 1.5)
+        #expect(metrics.requestCount == 321)
+        #expect(metrics.statisticalTokens == 120_000)
+        #expect(metrics.averageTPM == 1_000)
+        #expect(metrics.averageRPM == 0.5)
+    }
+
+    @Test
+    func secondaryCardsAvoidDivisionByZero() {
+        let metrics = SecondaryDashboardMetrics(
+            accountUsedQuota: 1,
+            accountRequestCount: 2,
+            quotaPerUnit: 0,
+            statisticalTokens: 3,
+            selectedRequestCount: 4,
+            selectedRangeMinutes: 0
+        )
+
+        #expect(metrics.historicalConsumption == 0)
+        #expect(metrics.averageTPM == 0)
+        #expect(metrics.averageRPM == 0)
     }
 
     private func bucket(

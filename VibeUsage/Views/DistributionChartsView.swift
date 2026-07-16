@@ -31,7 +31,6 @@ struct DistributionChartsView: View {
                 slices: aggregate(data, by: \.project)
             )
         }
-        .animation(.easeInOut(duration: 0.28), value: data.count)
     }
 
     private func aggregate(_ buckets: [UsageBucket], by keyPath: KeyPath<UsageBucket, String>) -> [SliceData] {
@@ -183,7 +182,6 @@ private struct DonutCardView: View {
         .background(AppTheme.surface)
         .cornerRadius(7)
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
-        .animation(.easeInOut(duration: 0.28), value: slices.map { "\($0.label):\($0.tokens):\($0.cost)" }.joined(separator: "|"))
     }
 
     private func valueText(_ slice: SliceData) -> String {

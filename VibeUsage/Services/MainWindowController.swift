@@ -6,7 +6,7 @@ struct MainWindowConfiguration {
         title: "Vibe Usage",
         defaultContentSize: NSSize(width: 1280, height: 820),
         minimumContentSize: NSSize(width: 1024, height: 680),
-        frameAutosaveName: "VibeUsageDashboardWindowV2"
+        frameAutosaveName: "VibeUsageDashboardWindowV3"
     )
 
     let title: String
@@ -36,8 +36,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     convenience init(appState: AppState) {
         self.init(rootView: PopoverView().environment(appState)) {
             Task { await appState.fetchUsageDataIfNeeded() }
-            Task { await appState.refreshCodexRateLimitIfNeeded() }
-            Task { await appState.refreshClaudeRateLimitIfNeeded() }
         }
     }
 

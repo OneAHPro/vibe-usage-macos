@@ -5,11 +5,11 @@ enum AppConfig {
 
     #if DEBUG
     static let defaultApiUrl = "http://localhost:3000"
-    static let configFileName = "config.dev.json"
+    static let accountConfigFileName = "desktop-account.dev.json"
     static let isDev = true
     #else
-    static let defaultApiUrl = "https://vibecafe.ai"
-    static let configFileName = "config.json"
+    static let defaultApiUrl = "https://api.anhepro.com"
+    static let accountConfigFileName = "desktop-account.json"
     static let isDev = false
     #endif
 }

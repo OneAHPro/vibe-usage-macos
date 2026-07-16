@@ -14,7 +14,7 @@ struct MainWindowControllerTests {
         #expect(window.title == "Vibe Usage")
         #expect(window.contentRect(forFrameRect: window.frame).size == NSSize(width: 1280, height: 820))
         #expect(window.contentMinSize == NSSize(width: 1024, height: 680))
-        #expect(MainWindowConfiguration.standard.frameAutosaveName == "VibeUsageDashboardWindowV2")
+        #expect(MainWindowConfiguration.standard.frameAutosaveName == "VibeUsageDashboardWindowV3")
         #expect(window.styleMask.contains(.titled))
         #expect(window.styleMask.contains(.closable))
         #expect(window.styleMask.contains(.miniaturizable))

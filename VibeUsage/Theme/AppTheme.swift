@@ -27,6 +27,7 @@ enum AppTheme {
     static var quaternaryText: Color { color(.quaternaryText) }
     static var selectionBackground: Color { color(.selectionBackground) }
     static var tooltipBackground: Color { color(.tooltipBackground) }
+    static let costAccent = Color(red: 0.06, green: 0.73, blue: 0.51)
 
     static func nsColor(_ token: Token) -> NSColor {
         switch token {

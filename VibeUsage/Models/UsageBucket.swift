@@ -20,15 +20,16 @@ struct UsageBucket: Codable, Identifiable, Equatable {
     let totalTokens: Int
     let estimatedCost: Double?
 
-    /// Total token volume, matching the web dashboard and ccusage-style totals:
-    /// input + output + reasoning + cached input.
+    /// The new system is the source of truth for token normalization. Different
+    /// providers account for cached and reasoning tokens differently, so the
+    /// desktop must not reconstruct this value from individual fields.
     var computedTotal: Int {
-        inputTokens + outputTokens + reasoningOutputTokens + cachedInputTokens
+        totalTokens
     }
 
     /// Date parsed from bucketStart ISO string
     var date: Date? {
-        ISO8601DateFormatter().date(from: bucketStart)
+        ISO8601Parser.date(from: bucketStart)
     }
 
     /// Day string (yyyy-MM-dd) for grouping

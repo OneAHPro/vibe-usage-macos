@@ -20,6 +20,22 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func sidebarNavigationUsesFullRowHitTargets() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shellSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/DashboardShellView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(shellSource.contains(".frame(maxWidth: .infinity, alignment: .leading)\n            .frame(height: 30)"))
+        #expect(shellSource.contains(".contentShape(Rectangle())"))
+        #expect(shellSource.contains(".buttonStyle(.plain)\n        .frame(maxWidth: .infinity)\n        .padding(.horizontal, 8)"))
+    }
+
+    @Test
     func heatmapUsesOneStableSquareSizeForEveryRow() {
         #expect(DashboardLayout.heatmapCellSize(for: 500) == 14)
         #expect(abs(DashboardLayout.heatmapCellSize(for: 280) - 6.4167) < 0.001)
@@ -124,7 +140,7 @@ struct DashboardLayoutTests {
         )
 
         #expect(shellSource.contains("overlayPreferenceValue(FilterButtonAnchorPreferenceKey.self)"))
-        #expect(shellSource.contains("expandedModelFamilies: $expandedModelFamilies,\n                            height: panelFrame.height"))
+        #expect(shellSource.contains("expandedModelFamilies: $expandedModelFamilies,\n                                height: panelFrame.height"))
         #expect(filterSource.contains("key: FilterButtonAnchorPreferenceKey.self"))
         #expect(!filterSource.contains("if let openFilter {\n                    filterPanel(for: openFilter)"))
     }
@@ -142,6 +158,35 @@ struct DashboardLayoutTests {
 
         #expect(filterSource.contains(".fill(isSelected || isMixed ? AppTheme.primaryText : Color.clear)"))
         #expect(!filterSource.contains(".background(isSelected || isMixed ? AppTheme.selectionBackground : Color.clear)"))
+    }
+
+    @Test
+    func mainDashboardHidesVerticalScrollIndicator() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shellSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/DashboardShellView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(shellSource.contains("ScrollView(.vertical, showsIndicators: false)"))
+        #expect(!shellSource.contains("ScrollView(.vertical, showsIndicators: true)"))
+    }
+
+    @Test
+    func settingsPageHidesVerticalScrollIndicator() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let settingsSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/SettingsView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(settingsSource.contains(".scrollIndicators(.hidden)"))
     }
 
     @Test
@@ -167,6 +212,44 @@ struct DashboardLayoutTests {
             viewportSize: CGSize(width: 320, height: 120)
         )
         #expect(compact == CGRect(x: 70, y: 4, width: 240, height: 112))
+    }
+
+    @Test
+    func filterOutsideClickDismissalExcludesPanelAndFilterButtons() {
+        let protectedFrames = [
+            CGRect(x: 100, y: 40, width: 180, height: 28),
+            CGRect(x: 70, y: 74, width: 240, height: 260),
+        ]
+
+        #expect(!DashboardLayout.shouldDismissFilter(
+            at: CGPoint(x: 150, y: 54),
+            protectedFrames: protectedFrames
+        ))
+        #expect(!DashboardLayout.shouldDismissFilter(
+            at: CGPoint(x: 200, y: 180),
+            protectedFrames: protectedFrames
+        ))
+        #expect(DashboardLayout.shouldDismissFilter(
+            at: CGPoint(x: 20, y: 400),
+            protectedFrames: protectedFrames
+        ))
+    }
+
+    @Test
+    func dashboardInstallsPassthroughFilterOutsideClickMonitor() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shellSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/DashboardShellView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(shellSource.contains("NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown)"))
+        #expect(shellSource.contains("DashboardLayout.shouldDismissFilter("))
+        #expect(shellSource.contains("return event"))
+        #expect(shellSource.contains("openFilter = nil"))
     }
 
     @Test

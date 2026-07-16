@@ -20,6 +20,77 @@ enum DashboardPage: Equatable {
     }
 }
 
+private final class PassthroughFilterClickView: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private struct FilterOutsideClickMonitor: NSViewRepresentable {
+    let protectedFrames: [CGRect]
+    let onOutsideClick: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PassthroughFilterClickView()
+        context.coordinator.start(monitoring: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.protectedFrames = protectedFrames
+        context.coordinator.onOutsideClick = onOutsideClick
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var view: NSView?
+        var protectedFrames: [CGRect] = []
+        var onOutsideClick: () -> Void = {}
+        private var monitor: Any?
+
+        func start(monitoring view: NSView) {
+            self.view = view
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                let eventWindowID = event.window.map(ObjectIdentifier.init)
+                let eventLocation = event.locationInWindow
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          let view = self.view,
+                          eventWindowID == view.window.map(ObjectIdentifier.init)
+                    else {
+                        return
+                    }
+
+                    let point = view.convert(eventLocation, from: nil)
+                    if DashboardLayout.shouldDismissFilter(
+                        at: point,
+                        protectedFrames: self.protectedFrames
+                    ) {
+                        self.onOutsideClick()
+                    }
+                }
+                return event
+            }
+        }
+
+        func stop() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+            view = nil
+        }
+    }
+}
+
 struct DashboardShellView: View {
     @Environment(AppState.self) private var appState
     @State private var selectedPage: DashboardPage = .usage
@@ -121,7 +192,7 @@ struct DashboardShellView: View {
 
     private var usagePage: some View {
         ZStack(alignment: .top) {
-            ScrollView(.vertical, showsIndicators: true) {
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: DashboardLayout.contentSpacing) {
                     statusBanner
 
@@ -172,18 +243,26 @@ struct DashboardShellView: View {
                             panelSize: requestedSize,
                             viewportSize: proxy.size
                         )
+                        let protectedFrames = anchors.values.map { proxy[$0] } + [panelFrame]
 
-                        FilterPanelView(
-                            dimension: openFilter,
-                            expandedModelFamilies: $expandedModelFamilies,
-                            height: panelFrame.height
-                        )
-                        .frame(width: panelFrame.width, height: panelFrame.height)
-                        .position(x: panelFrame.midX, y: panelFrame.midY)
-                        .transaction { transaction in
-                            transaction.animation = nil
+                        ZStack {
+                            FilterOutsideClickMonitor(protectedFrames: protectedFrames) {
+                                self.openFilter = nil
+                            }
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+
+                            FilterPanelView(
+                                dimension: openFilter,
+                                expandedModelFamilies: $expandedModelFamilies,
+                                height: panelFrame.height
+                            )
+                            .frame(width: panelFrame.width, height: panelFrame.height)
+                            .position(x: panelFrame.midX, y: panelFrame.midY)
+                            .transaction { transaction in
+                                transaction.animation = nil
+                            }
+                            .zIndex(100)
                         }
-                        .zIndex(100)
                     }
                 }
             }
@@ -408,6 +487,7 @@ struct DashboardShellView: View {
             }
             .foregroundStyle(selected ? AppTheme.primaryText : AppTheme.secondaryText)
             .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 30)
             .background(selected ? AppTheme.surface : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -417,8 +497,10 @@ struct DashboardShellView: View {
                         .stroke(AppTheme.separator, lineWidth: 0.5)
                 }
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 8)
     }
 

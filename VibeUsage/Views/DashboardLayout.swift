@@ -123,6 +123,13 @@ enum DashboardLayout {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
+    static func shouldDismissFilter(
+        at point: CGPoint,
+        protectedFrames: [CGRect]
+    ) -> Bool {
+        !protectedFrames.contains { $0.contains(point) }
+    }
+
     static func recordColumnWidths(for availableWidth: CGFloat) -> [CGFloat] {
         let tableWidth = max(availableWidth, recordMinimumTableWidth)
         let extraWidth = tableWidth - recordMinimumTableWidth

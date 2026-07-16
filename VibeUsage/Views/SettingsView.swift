@@ -109,6 +109,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
         .background(AppTheme.subtleSurface)
         .frame(width: embedded ? nil : 420, height: embedded ? nil : 460)
         .frame(maxWidth: embedded ? 760 : nil, maxHeight: embedded ? .infinity : nil)

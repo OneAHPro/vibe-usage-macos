@@ -4,9 +4,9 @@ import SwiftUI
 struct MainWindowConfiguration {
     static let standard = MainWindowConfiguration(
         title: "Vibe Usage",
-        defaultContentSize: NSSize(width: 960, height: 720),
-        minimumContentSize: NSSize(width: 760, height: 560),
-        frameAutosaveName: "VibeUsageMainWindow"
+        defaultContentSize: NSSize(width: 1280, height: 820),
+        minimumContentSize: NSSize(width: 1024, height: 680),
+        frameAutosaveName: "VibeUsageDashboardWindowV2"
     )
 
     let title: String

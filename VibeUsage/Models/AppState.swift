@@ -140,16 +140,17 @@ final class AppState {
         return (customRangeTo, customRangeFrom)
     }
 
+    var dashboardData: DashboardData {
+        DashboardData(
+            buckets: buckets,
+            sessions: sessions,
+            cutoff: timeRange.startCutoff,
+            filters: filters
+        )
+    }
+
     var filteredSessions: [UsageSession] {
-        let cutoff = timeRange.startCutoff
-        return sessions.filter { session in
-            if let cutoff, let date = session.date, date < cutoff { return false }
-            let f = filters
-            if !f.sources.isEmpty && !f.sources.contains(session.source) { return false }
-            if !f.projects.isEmpty && !f.projects.contains(session.project) { return false }
-            if !f.hostnames.isEmpty && !f.hostnames.contains(session.hostname) { return false }
-            return true
-        }
+        dashboardData.sessions
     }
 
     // MARK: - Config

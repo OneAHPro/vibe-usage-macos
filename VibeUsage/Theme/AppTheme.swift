@@ -37,7 +37,12 @@ enum AppTheme {
         case .raisedSurface:
             return .textBackgroundColor
         case .subtleSurface:
-            return .underPageBackgroundColor
+            return NSColor(name: "VibeUsageDashboardCanvas") { appearance in
+                if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                    return NSColor(srgbRed: 0.067, green: 0.075, blue: 0.086, alpha: 1)
+                }
+                return NSColor(srgbRed: 0.957, green: 0.961, blue: 0.969, alpha: 1)
+            }
         case .separator:
             return .separatorColor
         case .primaryText:

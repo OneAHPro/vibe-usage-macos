@@ -12,6 +12,15 @@ struct AppThemeTests {
     }
 
     @Test
+    func dashboardCanvasUsesSoftAdaptiveBackgrounds() {
+        let light = AppTheme.resolvedSRGB(.subtleSurface, appearance: .aqua)
+        let dark = AppTheme.resolvedSRGB(.subtleSurface, appearance: .darkAqua)
+
+        #expect(relativeLuminance(light) > 0.85)
+        #expect(relativeLuminance(dark) < 0.04)
+    }
+
+    @Test
     func primaryTextKeepsReadableContrastInBothAppearances() {
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             let background = AppTheme.resolvedSRGB(.windowBackground, appearance: appearance)

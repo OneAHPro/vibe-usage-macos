@@ -66,3 +66,34 @@ struct DashboardData {
         )
     }
 }
+
+struct ActivityHeatmap: Equatable {
+    private let values: [Int: Int]
+    let maximum: Int
+
+    init(sessions: [UsageSession], calendar: Calendar = .current) {
+        var values: [Int: Int] = [:]
+        for session in sessions {
+            guard let date = session.date else { continue }
+            let components = calendar.dateComponents([.weekday, .hour], from: date)
+            guard let weekday = components.weekday, let hour = components.hour else { continue }
+            let key = Self.key(weekday: weekday, hour: hour)
+            values[key, default: 0] += session.activeSeconds
+        }
+        self.values = values
+        self.maximum = values.values.max() ?? 0
+    }
+
+    func value(weekday: Int, hour: Int) -> Int {
+        values[Self.key(weekday: weekday, hour: hour), default: 0]
+    }
+
+    func intensity(weekday: Int, hour: Int) -> Double {
+        guard maximum > 0 else { return 0 }
+        return Double(value(weekday: weekday, hour: hour)) / Double(maximum)
+    }
+
+    private static func key(weekday: Int, hour: Int) -> Int {
+        weekday * 24 + hour
+    }
+}

@@ -91,6 +91,49 @@ struct DashboardDataTests {
         #expect(data.recentBuckets.last?.inputTokens == 5)
     }
 
+    @Test
+    func heatmapAggregatesSessionsByWeekdayAndHour() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let sessions = [
+            session(
+                source: "codex",
+                project: "radar",
+                firstMessageAt: "2026-07-13T09:10:00Z",
+                duration: 180,
+                active: 120,
+                messages: 2,
+                userMessages: 1
+            ),
+            session(
+                source: "codex",
+                project: "radar",
+                firstMessageAt: "2026-07-13T09:50:00Z",
+                duration: 60,
+                active: 60,
+                messages: 1,
+                userMessages: 1
+            ),
+            session(
+                source: "codex",
+                project: "radar",
+                firstMessageAt: "2026-07-13T10:05:00Z",
+                duration: 60,
+                active: 60,
+                messages: 1,
+                userMessages: 1
+            ),
+        ]
+
+        let heatmap = ActivityHeatmap(sessions: sessions, calendar: calendar)
+
+        #expect(heatmap.value(weekday: 2, hour: 9) == 180)
+        #expect(heatmap.value(weekday: 2, hour: 10) == 60)
+        #expect(heatmap.maximum == 180)
+        #expect(heatmap.intensity(weekday: 2, hour: 9) == 1)
+        #expect(abs(heatmap.intensity(weekday: 2, hour: 10) - (1.0 / 3.0)) < 0.000_001)
+    }
+
     private func bucket(
         source: String,
         project: String,

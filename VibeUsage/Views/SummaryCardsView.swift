@@ -3,58 +3,28 @@ import SwiftUI
 struct SummaryCardsView: View {
     @Environment(AppState.self) private var appState
 
-    private var filtered: [UsageBucket] {
-        let cutoff = appState.timeRange.startCutoff
-        return appState.buckets.filter { bucket in
-            if let cutoff, let date = bucket.date, date < cutoff { return false }
-            let f = appState.filters
-            if !f.sources.isEmpty && !f.sources.contains(bucket.source) { return false }
-            if !f.models.isEmpty && !f.models.contains(bucket.model) { return false }
-            if !f.projects.isEmpty && !f.projects.contains(bucket.project) { return false }
-            if !f.hostnames.isEmpty && !f.hostnames.contains(bucket.hostname) { return false }
-            return true
-        }
-    }
-
-    private var totalCost: Double {
-        filtered.reduce(0) { $0 + ($1.estimatedCost ?? 0) }
-    }
-
-    private var totalTokens: Int {
-        filtered.reduce(0) { $0 + $1.computedTotal }
-    }
-
-    private var totalCachedInputTokens: Int {
-        filtered.reduce(0) { $0 + $1.cachedInputTokens }
-    }
-
-    private var filteredSessions: [UsageSession] {
-        appState.filteredSessions
-    }
-
-    private var totalActiveSeconds: Int {
-        filteredSessions.reduce(0) { $0 + $1.activeSeconds }
-    }
-
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            StatCard(label: "预估费用", value: Formatters.formatCost(totalCost), color: Color(red: 0.2, green: 0.8, blue: 0.5))
-            StatCard(label: "总 Token", value: Formatters.formatNumber(totalTokens))
-            StatCard(label: "缓存 Token", value: Formatters.formatNumber(totalCachedInputTokens))
-            StatCard(label: "活跃时长", value: Formatters.formatDuration(totalActiveSeconds), color: Color(red: 0.38, green: 0.6, blue: 1.0))
+        let metrics = appState.dashboardData.metrics
+        DashboardMetricLayout(spacing: 8) {
+            StatCard(label: "预估费用", value: Formatters.formatCost(metrics.estimatedCost), color: Color(red: 0.06, green: 0.73, blue: 0.51))
+            StatCard(label: "总 Token", value: Formatters.formatNumber(metrics.totalTokens))
+            StatCard(label: "输入 Token", value: Formatters.formatNumber(metrics.inputTokens))
+            StatCard(label: "输出 Token", value: Formatters.formatNumber(metrics.outputTokens))
+            StatCard(label: "缓存 Token", value: Formatters.formatNumber(metrics.cachedTokens), color: AppTheme.secondaryText)
+            StatCard(label: "活跃时长", value: Formatters.formatDuration(metrics.activeSeconds), color: Color(red: 0.23, green: 0.51, blue: 0.96))
+            StatCard(label: "总时长", value: Formatters.formatDuration(metrics.durationSeconds))
+            StatCard(label: "会话数", value: Formatters.formatNumber(metrics.sessionCount))
+            StatCard(label: "总消息数", value: Formatters.formatNumber(metrics.messageCount))
+            StatCard(label: "用户消息数", value: Formatters.formatNumber(metrics.userMessageCount))
         }
-        .frame(maxWidth: .infinity)
-        .animation(.easeInOut(duration: 0.28), value: totalCost)
-        .animation(.easeInOut(duration: 0.28), value: totalTokens)
-        .animation(.easeInOut(duration: 0.28), value: totalCachedInputTokens)
-        .animation(.easeInOut(duration: 0.28), value: totalActiveSeconds)
+        .animation(.easeInOut(duration: 0.28), value: metrics)
     }
 }
 
 private struct StatCard: View {
     let label: String
     let value: String
-    var color: Color = .white
+    var color: Color = AppTheme.primaryText
 
     // Reserve fixed line-box heights so all cards render at exactly the same height,
     // even when minimumScaleFactor shrinks the value glyphs in narrower columns.
@@ -80,12 +50,12 @@ private struct StatCard: View {
                 .clipped()
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 13)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
         .background(AppTheme.surface)
-        .cornerRadius(4)
+        .cornerRadius(7)
         .overlay(
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 7)
                 .stroke(AppTheme.separator, lineWidth: 1)
         )
     }

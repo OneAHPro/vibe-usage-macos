@@ -73,7 +73,7 @@ Expands from four to ten metrics using current data only:
 - total session duration;
 - session count;
 - message count;
-- project count.
+- user message count.
 
 The aggregation logic moves into a small, testable `DashboardMetrics` value.
 

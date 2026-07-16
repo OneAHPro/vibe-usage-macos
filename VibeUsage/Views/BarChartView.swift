@@ -62,16 +62,7 @@ struct BarChartView: View {
     }
 
     private var filtered: [UsageBucket] {
-        let cutoff = appState.timeRange.startCutoff
-        return appState.buckets.filter { bucket in
-            if let cutoff, let date = bucket.date, date < cutoff { return false }
-            let f = appState.filters
-            if !f.sources.isEmpty && !f.sources.contains(bucket.source) { return false }
-            if !f.models.isEmpty && !f.models.contains(bucket.model) { return false }
-            if !f.projects.isEmpty && !f.projects.contains(bucket.project) { return false }
-            if !f.hostnames.isEmpty && !f.hostnames.contains(bucket.hostname) { return false }
-            return true
-        }
+        appState.dashboardData.buckets
     }
 
     private var chartData: [BarData] {
@@ -179,7 +170,7 @@ struct BarChartView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text(isHourly ? "每小时趋势" : "每日趋势")
+                Label(isHourly ? "每小时趋势" : "每日趋势", systemImage: "waveform.path.ecg")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
@@ -224,12 +215,12 @@ struct BarChartView: View {
                 labelInterval: labelInterval
             )
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity)
         .background(AppTheme.surface)
-        .cornerRadius(4)
+        .cornerRadius(7)
         .overlay(
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 7)
                 .stroke(AppTheme.separator, lineWidth: 1)
         )
     }

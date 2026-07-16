@@ -4,16 +4,7 @@ struct DistributionChartsView: View {
     @Environment(AppState.self) private var appState
 
     private var filtered: [UsageBucket] {
-        let cutoff = appState.timeRange.startCutoff
-        return appState.buckets.filter { bucket in
-            if let cutoff, let date = bucket.date, date < cutoff { return false }
-            let f = appState.filters
-            if !f.sources.isEmpty && !f.sources.contains(bucket.source) { return false }
-            if !f.models.isEmpty && !f.models.contains(bucket.model) { return false }
-            if !f.projects.isEmpty && !f.projects.contains(bucket.project) { return false }
-            if !f.hostnames.isEmpty && !f.hostnames.contains(bucket.hostname) { return false }
-            return true
-        }
+        appState.dashboardData.buckets
     }
 
     var body: some View {
@@ -154,9 +145,10 @@ private struct DonutCardView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 80)
             } else {
-                VStack(spacing: 12) {
+                HStack(spacing: 22) {
                     DonutShape(slices: slices, mode: mode, total: total)
-                        .frame(width: 90, height: 90)
+                        .frame(width: 112, height: 112)
+                        .padding(.leading, 4)
 
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(slices) { slice in
@@ -181,14 +173,16 @@ private struct DonutCardView: View {
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, minHeight: 126, alignment: .leading)
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppTheme.surface)
-        .cornerRadius(4)
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.separator, lineWidth: 1))
+        .cornerRadius(7)
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
         .animation(.easeInOut(duration: 0.28), value: slices.map { "\($0.label):\($0.tokens):\($0.cost)" }.joined(separator: "|"))
     }
 

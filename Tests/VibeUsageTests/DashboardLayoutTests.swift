@@ -36,6 +36,25 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func leaderboardUsesReadableSectionTitlesAndTableInsets() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/LeaderboardView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(view.contains("private let leaderboardSectionTitleSize: CGFloat = 18"))
+        #expect(view.contains("private let leaderboardTitleSpacing: CGFloat = 16"))
+        #expect(view.contains("private let leaderboardContentInset: CGFloat = 20"))
+        #expect(view.contains("VStack(alignment: .leading, spacing: leaderboardTitleSpacing)"))
+        #expect(view.contains(".font(.system(size: leaderboardSectionTitleSize, weight: .bold))"))
+        #expect(view.components(separatedBy: ".padding(.horizontal, leaderboardContentInset)").count - 1 == 3)
+    }
+
+    @Test
     func sidebarPagesProvideInlineNavigationTitles() {
         #expect(DashboardPage.usage.title == "Vibe Usage")
         #expect(DashboardPage.settings.title == "设置")

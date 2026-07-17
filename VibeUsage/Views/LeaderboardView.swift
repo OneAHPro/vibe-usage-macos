@@ -2,6 +2,8 @@ import SwiftUI
 
 struct LeaderboardView: View {
     @Environment(AppState.self) private var appState
+    private let leaderboardSectionTitleSize: CGFloat = 18
+    private let leaderboardTitleSpacing: CGFloat = 16
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -162,8 +164,10 @@ struct LeaderboardView: View {
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle(title)
+        VStack(alignment: .leading, spacing: leaderboardTitleSpacing) {
+            Text(title)
+                .font(.system(size: leaderboardSectionTitleSize, weight: .bold))
+                .foregroundStyle(AppTheme.primaryText)
             content()
         }
     }
@@ -299,6 +303,7 @@ private struct LeaderboardBoardCard: View {
     let rankOffset: Int
 
     private let leaderboardRowHeight: CGFloat = 44
+    private let leaderboardContentInset: CGFloat = 20
 
     init(
         title: String,
@@ -336,7 +341,7 @@ private struct LeaderboardBoardCard: View {
                     .foregroundStyle(AppTheme.primaryText)
                 Spacer()
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, leaderboardContentInset)
             .frame(height: leaderboardRowHeight)
             .background(AppTheme.surface)
 
@@ -383,7 +388,7 @@ private struct LeaderboardBoardCard: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, leaderboardContentInset)
         .frame(height: leaderboardRowHeight)
         .background(AppTheme.surface)
     }
@@ -400,7 +405,7 @@ private struct LeaderboardBoardCard: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, leaderboardContentInset)
         .frame(height: leaderboardRowHeight)
         .background(AppTheme.surface)
         .contentShape(Rectangle())

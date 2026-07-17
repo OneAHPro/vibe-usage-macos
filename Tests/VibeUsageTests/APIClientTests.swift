@@ -150,6 +150,27 @@ struct APIClientTests {
         #expect(usage.sessions?.first?.messageCount == 2)
     }
 
+    @Test
+    func fetchLeaderboardUsesAuthenticatedNewSystemEndpoint() async throws {
+        let session = makeSession { request in
+            #expect(request.url?.path == "/api/user/leaderboard")
+            #expect(request.value(forHTTPHeaderField: "New-Api-User") == "7")
+            return response(
+                for: request,
+                body: #"{"success":true,"message":"","data":{"token_total_top":[],"token_daily_top":[],"quota_total_top":[],"quota_daily_top":[],"my_daily_quota_rank":null,"quota_yesterday_top":[],"my_yesterday_quota_rank":null,"invite_reward_top":[]}}"#
+            )
+        }
+        let client = APIClient(
+            baseURL: "https://api.anhepro.com",
+            userID: 7,
+            session: session
+        )
+
+        let leaderboard = try await client.fetchLeaderboard()
+
+        #expect(leaderboard.tokenTotalTop.isEmpty)
+    }
+
     private func makeSession(
         handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> URLSession {

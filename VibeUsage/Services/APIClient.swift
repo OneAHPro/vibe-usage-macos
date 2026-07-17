@@ -207,6 +207,14 @@ struct APIClient: Sendable {
         let _: APIEnvelope<EmptyPayload> = try await send(path: "/api/user/logout")
     }
 
+    func fetchLeaderboard() async throws -> LeaderboardData {
+        let envelope: APIEnvelope<LeaderboardData> = try await send(
+            path: "/api/user/leaderboard"
+        )
+        guard let data = envelope.data else { throw APIError.invalidResponse }
+        return data
+    }
+
     /// Fetch usage buckets for the dashboard.
     func fetchUsage(range: UsageQueryRange) async throws -> UsageResponse {
         guard var components = URLComponents(string: "\(baseURL)/api/desktop/usage") else {

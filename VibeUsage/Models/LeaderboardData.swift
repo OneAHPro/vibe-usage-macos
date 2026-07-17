@@ -45,6 +45,7 @@ struct LeaderboardData: Decodable, Equatable, Sendable {
     let myDailyQuotaRank: LeaderboardPersonalRank?
     let quotaYesterdayTop: [LeaderboardRow]
     let myYesterdayQuotaRank: LeaderboardPersonalRank?
+    let myTotalQuotaRank: LeaderboardPersonalRank?
 
     enum CodingKeys: String, CodingKey {
         case tokenTotalTop = "token_total_top"
@@ -54,6 +55,7 @@ struct LeaderboardData: Decodable, Equatable, Sendable {
         case myDailyQuotaRank = "my_daily_quota_rank"
         case quotaYesterdayTop = "quota_yesterday_top"
         case myYesterdayQuotaRank = "my_yesterday_quota_rank"
+        case myTotalQuotaRank = "my_total_quota_rank"
     }
 }
 

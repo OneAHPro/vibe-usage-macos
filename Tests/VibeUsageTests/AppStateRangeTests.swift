@@ -58,7 +58,8 @@ struct AppStateRangeTests {
             quotaDailyTop: [],
             myDailyQuotaRank: nil,
             quotaYesterdayTop: [],
-            myYesterdayQuotaRank: nil
+            myYesterdayQuotaRank: nil,
+            myTotalQuotaRank: nil
         )
         state.leaderboardError = "old"
 

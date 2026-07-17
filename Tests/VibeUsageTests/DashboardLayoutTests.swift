@@ -109,6 +109,24 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func nativeLeaderboardShowsAllThreePersonalRanks() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/LeaderboardView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(view.contains("title: \"今日消费排名\""))
+        #expect(view.contains("title: \"昨日消费排名\""))
+        #expect(view.contains("title: \"总消费排名\""))
+        #expect(view.contains("value: data.myTotalQuotaRank"))
+        #expect(view.components(separatedBy: ".frame(width: 240)").count - 1 == 3)
+    }
+
+    @Test
     func nativeLeaderboardUsesAlignedTableColumns() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -131,7 +149,7 @@ struct DashboardLayoutTests {
         #expect(!view.contains("预估费用"))
         #expect(view.contains("rows.contains(where: { $0.quota != nil })"))
         #expect(view.contains("return [.rank, .user, .tokens]"))
-        #expect(view.components(separatedBy: ".frame(width: 240)").count - 1 == 2)
+        #expect(view.components(separatedBy: ".frame(width: 240)").count - 1 == 3)
         #expect(view.contains("private let leaderboardRowHeight: CGFloat = 44"))
         #expect(view.components(separatedBy: ".frame(height: leaderboardRowHeight)").count - 1 >= 3)
         #expect(view.contains(".font(.system(size: 11, weight: .semibold, design: .monospaced))"))

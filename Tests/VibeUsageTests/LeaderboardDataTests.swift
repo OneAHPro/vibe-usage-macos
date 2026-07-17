@@ -5,7 +5,7 @@ import Testing
 struct LeaderboardDataTests {
     @Test
     func decodesTheProductionLeaderboardShape() throws {
-        let json = #"{"token_total_top":[{"user_id":1,"username":"a***e","display_name":"Alice","token_used":12900000000}],"token_daily_top":[],"quota_total_top":[{"user_id":2,"username":"b*b","quota":4041360000,"token_used":11100000000}],"quota_daily_top":[],"my_daily_quota_rank":{"rank":7,"quota":750000,"token_used":12345},"quota_yesterday_top":[],"my_yesterday_quota_rank":null,"invite_reward_top":[]}"#
+        let json = #"{"token_total_top":[{"user_id":1,"username":"a***e","display_name":"Alice","token_used":12900000000}],"token_daily_top":[],"quota_total_top":[{"user_id":2,"username":"b*b","quota":4041360000,"token_used":11100000000}],"quota_daily_top":[],"my_daily_quota_rank":{"rank":7,"quota":750000,"token_used":12345},"quota_yesterday_top":[],"my_yesterday_quota_rank":null,"my_total_quota_rank":{"rank":12,"quota":4284378646,"token_used":10780223812},"invite_reward_top":[]}"#
 
         let data = try JSONDecoder().decode(LeaderboardData.self, from: Data(json.utf8))
 
@@ -13,6 +13,18 @@ struct LeaderboardDataTests {
         #expect(data.quotaTotalTop.first?.quota == 4_041_360_000)
         #expect(data.myDailyQuotaRank?.rank == 7)
         #expect(data.myYesterdayQuotaRank == nil)
+        #expect(data.myTotalQuotaRank?.rank == 12)
+        #expect(data.myTotalQuotaRank?.quota == 4_284_378_646)
+        #expect(data.myTotalQuotaRank?.tokenUsed == 10_780_223_812)
+    }
+
+    @Test
+    func decodesNullTotalPersonalRank() throws {
+        let json = #"{"token_total_top":[],"token_daily_top":[],"quota_total_top":[],"quota_daily_top":[],"my_daily_quota_rank":null,"quota_yesterday_top":[],"my_yesterday_quota_rank":null,"my_total_quota_rank":null}"#
+
+        let data = try JSONDecoder().decode(LeaderboardData.self, from: Data(json.utf8))
+
+        #expect(data.myTotalQuotaRank == nil)
     }
 
     @Test

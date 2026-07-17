@@ -109,6 +109,13 @@ struct LeaderboardView: View {
                     quotaPerUnit: appState.quotaPerUnit
                 )
                 .frame(width: 240)
+
+                PersonalRankCard(
+                    title: "总消费排名",
+                    value: data.myTotalQuotaRank,
+                    quotaPerUnit: appState.quotaPerUnit
+                )
+                .frame(width: 240)
             }
         }
     }

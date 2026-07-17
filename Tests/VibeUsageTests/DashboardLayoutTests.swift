@@ -61,6 +61,37 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func nativeLeaderboardUsesAlignedTableColumns() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/LeaderboardView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(view.contains("private enum LeaderboardTableColumn"))
+        #expect(view.contains("private var leaderboardColumns"))
+        #expect(view.contains("private var leaderboardColumnHeader"))
+        #expect(view.contains("case .rank: \"#\""))
+        #expect(view.contains("case .user: \"用户\""))
+        #expect(view.contains("case .tokens: \"Token\""))
+        #expect(view.contains("case .cost: \"美金消耗\""))
+        #expect(view.contains("leftTitle: \"美金消耗\""))
+        #expect(!view.contains("预估消费"))
+        #expect(!view.contains("预估费用"))
+        #expect(view.contains("rows.contains(where: { $0.quota != nil })"))
+        #expect(view.contains("return [.rank, .user, .tokens]"))
+        #expect(view.components(separatedBy: ".frame(width: 240)").count - 1 == 2)
+        #expect(view.contains("private let leaderboardRowHeight: CGFloat = 44"))
+        #expect(view.components(separatedBy: ".frame(height: leaderboardRowHeight)").count - 1 >= 3)
+        #expect(view.contains(".font(.system(size: 11, weight: .semibold, design: .monospaced))"))
+        #expect(!view.contains(".background(AppTheme.subtleSurface.opacity(0.55))"))
+        #expect(!view.contains("LeaderboardAvatar"))
+    }
+
+    @Test
     func sidebarNavigationUsesFullRowHitTargets() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

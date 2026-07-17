@@ -14,7 +14,7 @@ struct LeaderboardView: View {
                     personalRankSection(data)
                     usageSection(title: "今日榜") {
                         pairedBoards(
-                            leftTitle: "预估消费",
+                            leftTitle: "美金消耗",
                             leftRows: data.quotaDailyTop,
                             leftMetric: .cost,
                             rightTitle: "Token",
@@ -24,7 +24,7 @@ struct LeaderboardView: View {
                     }
                     usageSection(title: "昨日榜") {
                         LeaderboardBoardCard(
-                            title: "预估消费",
+                            title: "美金消耗",
                             rows: data.quotaYesterdayTop,
                             metric: .cost,
                             quotaPerUnit: appState.quotaPerUnit
@@ -32,7 +32,7 @@ struct LeaderboardView: View {
                     }
                     usageSection(title: "累计榜") {
                         pairedBoards(
-                            leftTitle: "预估消费",
+                            leftTitle: "美金消耗",
                             leftRows: data.quotaTotalTop,
                             leftMetric: .cost,
                             rightTitle: "Token",
@@ -105,35 +105,20 @@ struct LeaderboardView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("我的排名")
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: DashboardLayout.contentSpacing) {
-                    PersonalRankCard(
-                        title: "今日消费排名",
-                        value: data.myDailyQuotaRank,
-                        quotaPerUnit: appState.quotaPerUnit
-                    )
-                    .frame(minWidth: 260)
+            HStack(spacing: DashboardLayout.contentSpacing) {
+                PersonalRankCard(
+                    title: "今日消费排名",
+                    value: data.myDailyQuotaRank,
+                    quotaPerUnit: appState.quotaPerUnit
+                )
+                .frame(width: 240)
 
-                    PersonalRankCard(
-                        title: "昨日消费排名",
-                        value: data.myYesterdayQuotaRank,
-                        quotaPerUnit: appState.quotaPerUnit
-                    )
-                    .frame(minWidth: 260)
-                }
-
-                VStack(spacing: DashboardLayout.contentSpacing) {
-                    PersonalRankCard(
-                        title: "今日消费排名",
-                        value: data.myDailyQuotaRank,
-                        quotaPerUnit: appState.quotaPerUnit
-                    )
-                    PersonalRankCard(
-                        title: "昨日消费排名",
-                        value: data.myYesterdayQuotaRank,
-                        quotaPerUnit: appState.quotaPerUnit
-                    )
-                }
+                PersonalRankCard(
+                    title: "昨日消费排名",
+                    value: data.myYesterdayQuotaRank,
+                    quotaPerUnit: appState.quotaPerUnit
+                )
+                .frame(width: 240)
             }
         }
     }
@@ -251,6 +236,22 @@ private enum LeaderboardMetric: Equatable {
     case tokens
 }
 
+private enum LeaderboardTableColumn: Hashable {
+    case rank
+    case user
+    case tokens
+    case cost
+
+    var title: String {
+        switch self {
+        case .rank: "#"
+        case .user: "用户"
+        case .tokens: "Token"
+        case .cost: "美金消耗"
+        }
+    }
+}
+
 private struct PersonalRankCard: View {
     let title: String
     let value: LeaderboardPersonalRank?
@@ -305,22 +306,41 @@ private struct LeaderboardBoardCard: View {
     let metric: LeaderboardMetric
     let quotaPerUnit: Double
 
+    private let leaderboardRowHeight: CGFloat = 44
+
+    private var leaderboardColumns: [LeaderboardTableColumn] {
+        if metric == .cost {
+            return [.rank, .user, .tokens, .cost]
+        }
+        if rows.contains(where: { $0.quota != nil }) {
+            return [.rank, .user, .cost, .tokens]
+        }
+        return [.rank, .user, .tokens]
+    }
+
+    private var primaryColumn: LeaderboardTableColumn {
+        metric == .cost ? .cost : .tokens
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(AppTheme.primaryText)
                 Spacer()
-                Text("用户")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(AppTheme.tertiaryText)
             }
             .padding(.horizontal, 12)
-            .frame(height: 38)
+            .frame(height: leaderboardRowHeight)
+            .background(AppTheme.surface)
 
             Divider()
                 .overlay(AppTheme.separator)
+
+            leaderboardColumnHeader
+
+            Divider()
+                .overlay(AppTheme.separator.opacity(0.7))
 
             if rows.isEmpty {
                 Text("暂无排行数据")
@@ -347,49 +367,107 @@ private struct LeaderboardBoardCard: View {
         }
     }
 
-    private func leaderboardRow(_ row: LeaderboardRow, rank: Int) -> some View {
-        HStack(spacing: 9) {
-            Text("\(rank)")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundStyle(rankColor(rank))
-                .frame(width: 24, alignment: .leading)
-
-            LeaderboardAvatar(row: row)
-
-            Text(row.preferredName)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(AppTheme.primaryText)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(primaryValue(row))
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color(red: 0.06, green: 0.73, blue: 0.51))
-
-                if metric == .cost {
-                    Text("\(Formatters.formatNumber(row.tokenUsed)) Token")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(AppTheme.tertiaryText)
+    private var leaderboardColumnHeader: some View {
+        HStack(spacing: 10) {
+            ForEach(leaderboardColumns, id: \.self) { column in
+                framedColumn(column) {
+                    Text(column.title)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(AppTheme.secondaryText)
                 }
             }
         }
         .padding(.horizontal, 12)
-        .frame(height: 48)
+        .frame(height: leaderboardRowHeight)
+        .background(AppTheme.surface)
+    }
+
+    private func leaderboardRow(_ row: LeaderboardRow, rank: Int) -> some View {
+        HStack(spacing: 10) {
+            ForEach(leaderboardColumns, id: \.self) { column in
+                framedColumn(column) {
+                    Text(value(for: column, row: row, rank: rank))
+                        .font(rowFont(for: column))
+                        .foregroundStyle(rowColor(for: column, rank: rank))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: leaderboardRowHeight)
+        .background(AppTheme.surface)
         .contentShape(Rectangle())
     }
 
-    private func primaryValue(_ row: LeaderboardRow) -> String {
-        switch metric {
-        case .cost:
-            LeaderboardPresentation.costLabel(
-                quota: row.quota ?? 0,
-                quotaPerUnit: quotaPerUnit
-            )
+    @ViewBuilder
+    private func framedColumn<Content: View>(
+        _ column: LeaderboardTableColumn,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        switch column {
+        case .rank:
+            content()
+                .frame(width: 26, alignment: .leading)
+        case .user:
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .tokens, .cost:
+            content()
+                .frame(width: 86, alignment: .trailing)
+        }
+    }
+
+    private func value(
+        for column: LeaderboardTableColumn,
+        row: LeaderboardRow,
+        rank: Int
+    ) -> String {
+        switch column {
+        case .rank:
+            "\(rank)."
+        case .user:
+            row.preferredName
         case .tokens:
             Formatters.formatNumber(row.tokenUsed)
+        case .cost:
+            if let quota = row.quota {
+                LeaderboardPresentation.costLabel(
+                    quota: quota,
+                    quotaPerUnit: quotaPerUnit
+                )
+            } else {
+                "—"
+            }
         }
+    }
+
+    private func rowFont(for column: LeaderboardTableColumn) -> Font {
+        switch column {
+        case .rank:
+            .system(size: 11, weight: .bold, design: .monospaced)
+        case .user:
+            .system(size: 12, weight: .medium)
+        case .tokens, .cost:
+            .system(
+                size: 11,
+                weight: column == primaryColumn ? .semibold : .regular,
+                design: .monospaced
+            )
+        }
+    }
+
+    private func rowColor(for column: LeaderboardTableColumn, rank: Int) -> Color {
+        if column == .rank {
+            return rankColor(rank)
+        }
+        if column == primaryColumn {
+            return AppTheme.costAccent
+        }
+        if column == .user {
+            return AppTheme.primaryText
+        }
+        return AppTheme.secondaryText
     }
 
     private func rankColor(_ rank: Int) -> Color {
@@ -399,49 +477,5 @@ private struct LeaderboardBoardCard: View {
         case 3: Color(red: 0.76, green: 0.48, blue: 0.28)
         default: AppTheme.tertiaryText
         }
-    }
-}
-
-private struct LeaderboardAvatar: View {
-    let row: LeaderboardRow
-
-    var body: some View {
-        Group {
-            if let value = row.avatarURL,
-               let url = URL(string: value)
-            {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .scaledToFill()
-                } placeholder: {
-                    initialBadge
-                }
-            } else {
-                initialBadge
-            }
-        }
-        .frame(width: 24, height: 24)
-        .clipShape(Circle())
-    }
-
-    private var initialBadge: some View {
-        ZStack {
-            Circle()
-                .fill(badgeColor.opacity(0.18))
-            Text(String(row.preferredName.prefix(1)).uppercased())
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundStyle(badgeColor)
-        }
-    }
-
-    private var badgeColor: Color {
-        let palette: [Color] = [
-            .blue, .cyan, .green, .indigo, .orange, .pink, .purple, .teal,
-        ]
-        let total = row.preferredName.unicodeScalars.reduce(0) {
-            $0 &+ Int($1.value)
-        }
-        return palette[abs(total) % palette.count]
     }
 }

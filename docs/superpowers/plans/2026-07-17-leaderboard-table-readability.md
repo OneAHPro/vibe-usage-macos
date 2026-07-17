@@ -37,7 +37,10 @@ func nativeLeaderboardUsesAlignedTableColumns() throws {
     #expect(view.contains("case .rank: \"#\""))
     #expect(view.contains("case .user: \"用户\""))
     #expect(view.contains("case .tokens: \"Token\""))
-    #expect(view.contains("case .cost: \"预估费用\""))
+    #expect(view.contains("case .cost: \"美金消耗\""))
+    #expect(!view.contains("预估"))
+    #expect(view.components(separatedBy: ".frame(width: 240)").count - 1 == 2)
+    #expect(view.contains("private let leaderboardRowHeight: CGFloat = 44"))
     #expect(!view.contains("LeaderboardAvatar"))
 }
 ```
@@ -73,7 +76,7 @@ private enum LeaderboardTableColumn: Hashable {
         case .rank: "#"
         case .user: "用户"
         case .tokens: "Token"
-        case .cost: "预估费用"
+        case .cost: "美金消耗"
         }
     }
 }
@@ -89,14 +92,14 @@ private var leaderboardColumnHeader: some View {
         }
     }
     .padding(.horizontal, 12)
-    .frame(height: 30)
-    .background(AppTheme.subtleSurface.opacity(0.55))
+    .frame(height: leaderboardRowHeight)
+    .background(AppTheme.surface)
 }
 ```
 
 - [ ] **Step 2: Flatten each row**
 
-Remove `LeaderboardAvatar` and the nested metric `VStack`. Use one `HStack` over `leaderboardColumns`; give rank a fixed 28-point width, both numeric columns a fixed 92-point width, and the user the remaining width. `primaryColumn` is `.cost` for spend boards and `.tokens` for token boards. Render an em dash for a missing quota and use `AppTheme.costAccent` only for the primary column.
+Remove `LeaderboardAvatar` and the nested metric `VStack`. Use one `HStack` over `leaderboardColumns`; give rank a fixed 26-point width, both numeric columns a fixed 86-point width, and the user the remaining width. `primaryColumn` is `.cost` for spend boards and `.tokens` for token boards. When every token-ranked row lacks quota, omit the empty cost column instead of filling it with em dashes. Use `AppTheme.costAccent` only for the primary column. Keep board title, column header, and data rows at 44 points, increase the column-header font to 11 points, and use `AppTheme.surface` for every table row.
 
 - [ ] **Step 3: Run the focused test and verify GREEN**
 

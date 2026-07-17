@@ -50,21 +50,21 @@ The leaderboard page is a single scrollable native view with hidden scroll indic
    - Keeps the last successful data visible during refresh.
 
 2. **我的排名**
-   - Two compact cards: `今日消费排名` and `昨日消费排名`.
-   - Each card shows the rank, estimated spend, and token usage returned for that quota rank.
+   - Two fixed-width, left-aligned compact cards: `今日消费排名` and `昨日消费排名`; they do not stretch to fill the window.
+   - Each card shows the rank, US-dollar spend, and token usage returned for that quota rank.
    - A missing personal rank is shown as `未上榜`, not `0` and not a fabricated `100+`.
 
 3. **今日榜**
-   - Two equal-width cards when space allows: `预估消费` from `quota_daily_top` and `Token` from `token_daily_top`.
+   - Two equal-width cards when space allows: `美金消耗` from `quota_daily_top` and `Token` from `token_daily_top`.
    - Each board uses a real table header and fixed columns instead of an avatar-led summary row.
-   - The spend board orders its columns as `#`, `用户`, `Token`, `预估费用`; the token board orders them as `#`, `用户`, `预估费用`, `Token` so the board's primary ranking metric is always the rightmost highlighted value.
+   - The spend board orders its columns as `#`, `用户`, `Token`, `美金消耗`; the token board orders them as `#`, `用户`, `美金消耗`, `Token` when quota exists so the board's primary ranking metric is always the rightmost highlighted value. If the endpoint omits quota for every token-ranked row, the empty cost column is omitted too.
 
 4. **昨日榜**
-   - One full-width `预估消费` card from `quota_yesterday_top`.
+   - One full-width `美金消耗` card from `quota_yesterday_top`.
    - No empty token card is rendered because the endpoint does not provide a yesterday token leaderboard.
 
 5. **累计榜**
-   - Two equal-width cards: `预估消费` from `quota_total_top` and `Token` from `token_total_top`.
+   - Two equal-width cards: `美金消耗` from `quota_total_top` and `Token` from `token_total_top`.
 
 On a narrow window, paired cards stack vertically. No horizontal scrolling is required.
 
@@ -74,12 +74,13 @@ The page follows the app's existing restrained desktop system rather than copyin
 
 - **Canvas:** existing `AppTheme.canvas` and `AppTheme.subtleSurface`.
 - **Cards:** existing `AppTheme.surface`, one-pixel separator, seven-pixel corner radius.
+- **Leaderboard rows:** board title, column header, and data rows all use the same 44-point height and the same `AppTheme.surface`; no gray header fill is used.
 - **Primary text:** existing `AppTheme.primaryText`.
 - **Secondary text:** existing `AppTheme.secondaryText` and `AppTheme.tertiaryText`.
 - **Usage accent:** the app's existing mint-green success color for monetary and token highlights.
 - **Typography:** system text for labels and monospaced system text for ranks and numeric values.
 
-The signature element is a compact rank rail: rank numbers form a fixed-width leading column so rows read like a live terminal scoreboard while still matching the current application shell. User, token, and spend columns remain aligned from row to row. Leaderboard avatars are omitted because they consume horizontal space without helping comparison. Top-three ranks receive only a restrained text tint; the rest of the page remains neutral.
+The signature element is a compact rank rail: rank numbers form a fixed-width leading column so rows read like a live terminal scoreboard while still matching the current application shell. User, token, and spend columns remain aligned from row to row. Column labels use a readable 11-point weight rather than caption-sized text. Leaderboard avatars are omitted because they consume horizontal space without helping comparison. Top-three ranks receive only a restrained text tint; the rest of the page remains neutral.
 
 ## Formatting Rules
 

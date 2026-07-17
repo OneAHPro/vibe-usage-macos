@@ -1,7 +1,7 @@
 # Native Leaderboard Design
 
-**Date:** 2026-07-17  
-**Status:** Approved for planning  
+**Date:** 2026-07-17
+**Status:** Approved for planning
 **Scope:** Vibe Usage macOS app only
 
 ## Goal
@@ -83,7 +83,7 @@ The signature element is a compact rank rail: rank numbers form a fixed-width le
 ## Formatting Rules
 
 - Estimated spend is calculated as `quota / quota_per_unit`, using the same server status value already loaded by the app and a safe fallback of `500_000`.
-- Currency uses US dollars with two decimals.
+- Currency uses the app's existing US-dollar formatter: two decimals normally and four decimals for sub-cent values.
 - Token counts use the existing compact formatter (`12.9B`, `11.1M`, and similar).
 - User display priority is `display_name`, then `username`, then `-`.
 - Avatar URLs are optional. When unavailable, show a deterministic initial badge without making another request.

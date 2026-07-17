@@ -76,6 +76,7 @@ The page follows the app's existing restrained desktop system rather than copyin
 - **Canvas:** existing `AppTheme.canvas` and `AppTheme.subtleSurface`.
 - **Cards:** existing `AppTheme.surface`, one-pixel separator, seven-pixel corner radius.
 - **Leaderboard rows:** board title, column header, and data rows all use the same 44-point height and the same `AppTheme.surface`; no gray header fill is used.
+- **Vertical rhythm:** the personal-rank block and the three leaderboard blocks use 48-point section spacing to match the official page's large category breaks, while each section title remains 8 points from its cards.
 - **Primary text:** existing `AppTheme.primaryText`.
 - **Secondary text:** existing `AppTheme.secondaryText` and `AppTheme.tertiaryText`.
 - **Usage accent:** the app's existing mint-green success color for monetary and token highlights.

@@ -88,6 +88,7 @@ The signature element is a compact rank rail: rank numbers form a fixed-width le
 
 ## Formatting Rules
 
+- Personal ranks from 1 through 100 use `#<rank>`; ranks above 100 use the compact official label `100+`. Missing or non-positive ranks remain `未上榜`.
 - Estimated spend is calculated as `quota / quota_per_unit`, using the same server status value already loaded by the app and a safe fallback of `500_000`.
 - Currency uses the app's existing US-dollar formatter: two decimals normally and four decimals for sub-cent values.
 - Token counts use the existing compact formatter (`12.9B`, `11.1M`, and similar).

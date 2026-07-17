@@ -59,6 +59,19 @@ struct LeaderboardDataTests {
     }
 
     @Test
+    func personalRanksAboveOneHundredUseCompactLabel() {
+        #expect(LeaderboardPresentation.rankLabel(
+            .init(rank: 100, quota: 1, tokenUsed: 1)
+        ) == "#100")
+        #expect(LeaderboardPresentation.rankLabel(
+            .init(rank: 101, quota: 1, tokenUsed: 1)
+        ) == "100+")
+        #expect(LeaderboardPresentation.rankLabel(
+            .init(rank: 151, quota: 1, tokenUsed: 1)
+        ) == "100+")
+    }
+
+    @Test
     func splitsRankingsIntoContinuationColumns() {
         let rows = (1...10).map { rank in
             LeaderboardRow(

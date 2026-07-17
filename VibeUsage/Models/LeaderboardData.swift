@@ -67,6 +67,7 @@ struct LeaderboardSegment: Equatable, Sendable {
 enum LeaderboardPresentation {
     static func rankLabel(_ value: LeaderboardPersonalRank?) -> String {
         guard let value, value.rank > 0 else { return "未上榜" }
+        if value.rank > 100 { return "100+" }
         return "#\(value.rank)"
     }
 

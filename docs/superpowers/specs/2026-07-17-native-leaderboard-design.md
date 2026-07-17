@@ -14,7 +14,7 @@ Replace every leaderboard link that opens the browser with a native SwiftUI page
 - The dashboard header **排行榜** action opens the same native page.
 - The app no longer opens `/rankings` in a browser from either entry point.
 - Do not show `24H`, `7D`, `30D`, tool, or model controls.
-- Do not add new backend endpoints or extend the production leaderboard schema.
+- Do not add new backend endpoints. The production response now includes the approved total personal-rank field.
 - Preserve server-provided masked usernames, display names, and sanitized avatar URLs.
 - Do not display the invitation reward leaderboard because it is unrelated to usage ranking.
 
@@ -31,6 +31,7 @@ The response fields used by the app are:
 - `token_total_top`: total token leaderboard, up to twenty rows.
 - `my_daily_quota_rank`: the signed-in user's rank, spend, and tokens for today.
 - `my_yesterday_quota_rank`: the signed-in user's rank, spend, and tokens for yesterday.
+- `my_total_quota_rank`: the signed-in user's true all-time spend rank, spend, and tokens; it is not limited to the visible top twenty.
 
 The app must not label the quota-based personal rank as an independent token rank. The token value in a personal-rank payload is supporting usage data for that same quota ranking.
 
@@ -50,7 +51,7 @@ The leaderboard page is a single scrollable native view with hidden scroll indic
    - Keeps the last successful data visible during refresh.
 
 2. **我的排名**
-   - Two fixed-width, left-aligned compact cards: `今日消费排名` and `昨日消费排名`; they do not stretch to fill the window.
+   - Three fixed-width, left-aligned compact cards: `今日消费排名`, `昨日消费排名`, and `总消费排名`; they do not stretch to fill the window.
    - Each card shows the rank, US-dollar spend, and token usage returned for that quota rank.
    - A missing personal rank is shown as `未上榜`, not `0` and not a fabricated `100+`.
 

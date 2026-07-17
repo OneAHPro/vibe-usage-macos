@@ -56,7 +56,8 @@ The leaderboard page is a single scrollable native view with hidden scroll indic
 
 3. **今日榜**
    - Two equal-width cards when space allows: `预估消费` from `quota_daily_top` and `Token` from `token_daily_top`.
-   - Each row shows rank, masked user name, token amount, and estimated spend when that value exists.
+   - Each board uses a real table header and fixed columns instead of an avatar-led summary row.
+   - The spend board orders its columns as `#`, `用户`, `Token`, `预估费用`; the token board orders them as `#`, `用户`, `预估费用`, `Token` so the board's primary ranking metric is always the rightmost highlighted value.
 
 4. **昨日榜**
    - One full-width `预估消费` card from `quota_yesterday_top`.
@@ -78,7 +79,7 @@ The page follows the app's existing restrained desktop system rather than copyin
 - **Usage accent:** the app's existing mint-green success color for monetary and token highlights.
 - **Typography:** system text for labels and monospaced system text for ranks and numeric values.
 
-The signature element is a compact rank rail: rank numbers form a fixed-width leading column so rows read like a live terminal scoreboard while still matching the current application shell. Top-three rows receive only a restrained badge tint; the rest of the page remains neutral.
+The signature element is a compact rank rail: rank numbers form a fixed-width leading column so rows read like a live terminal scoreboard while still matching the current application shell. User, token, and spend columns remain aligned from row to row. Leaderboard avatars are omitted because they consume horizontal space without helping comparison. Top-three ranks receive only a restrained text tint; the rest of the page remains neutral.
 
 ## Formatting Rules
 

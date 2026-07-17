@@ -22,4 +22,9 @@ struct FormattersTests {
         #expect(Formatters.formatRate(1_000) == "1000.000")
         #expect(Formatters.formatRate(0.5) == "0.500")
     }
+
+    @Test
+    func formatsBillionScaleTokenCounts() {
+        #expect(Formatters.formatNumber(12_900_000_000) == "12.9B")
+    }
 }

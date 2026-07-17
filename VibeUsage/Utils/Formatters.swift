@@ -15,6 +15,10 @@ enum Formatters {
 
     /// Format large numbers with compact notation: 1234 → "1,234", 45200 → "45.2K"
     static func formatNumber(_ n: Int) -> String {
+        if n >= 1_000_000_000 {
+            let value = Double(n) / 1_000_000_000.0
+            return String(format: "%.1fB", value)
+        }
         if n >= 1_000_000 {
             let value = Double(n) / 1_000_000.0
             return String(format: "%.1fM", value)

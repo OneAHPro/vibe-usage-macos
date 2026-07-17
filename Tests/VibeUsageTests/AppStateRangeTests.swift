@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import VibeUsage
 
@@ -44,5 +45,27 @@ struct AppStateRangeTests {
         state.timeRange = .all
 
         #expect(state.usageLoadingMessage == "正在加载全部数据…")
+    }
+
+    @Test
+    func applyingLeaderboardDataClearsErrorsAndRecordsUpdateTime() {
+        let state = AppState()
+        let update = Date(timeIntervalSince1970: 1_700_000_000)
+        let data = LeaderboardData(
+            tokenTotalTop: [],
+            tokenDailyTop: [],
+            quotaTotalTop: [],
+            quotaDailyTop: [],
+            myDailyQuotaRank: nil,
+            quotaYesterdayTop: [],
+            myYesterdayQuotaRank: nil
+        )
+        state.leaderboardError = "old"
+
+        state.applyLeaderboardData(data, updatedAt: update)
+
+        #expect(state.leaderboardData == data)
+        #expect(state.leaderboardUpdatedAt == update)
+        #expect(state.leaderboardError == nil)
     }
 }

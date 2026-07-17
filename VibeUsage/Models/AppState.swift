@@ -101,6 +101,10 @@ final class AppState {
     var hasLoadedUsageData: Bool = false
     var isLoadingHeatmap: Bool = false
     var dashboardRenderGeneration: Int = 0
+    var leaderboardData: LeaderboardData?
+    var leaderboardUpdatedAt: Date?
+    var leaderboardError: String?
+    var isLoadingLeaderboard: Bool = false
 
     var isInitialDataLoad: Bool {
         isLoadingData && !hasLoadedUsageData && buckets.isEmpty
@@ -353,6 +357,39 @@ final class AppState {
 
     // MARK: - Data Fetching
 
+    func fetchLeaderboard() async {
+        guard let config, let userID = config.userID else { return }
+        guard !isLoadingLeaderboard else { return }
+        isLoadingLeaderboard = true
+        leaderboardError = nil
+        defer { isLoadingLeaderboard = false }
+
+        do {
+            let client = APIClient(
+                baseURL: config.apiUrl ?? AppConfig.defaultApiUrl,
+                userID: userID
+            )
+            applyLeaderboardData(try await client.fetchLeaderboard())
+        } catch {
+            if let apiError = error as? APIClient.APIError,
+               case .unauthorized = apiError
+            {
+                clearRemoteSession()
+            } else {
+                leaderboardError = error.localizedDescription
+            }
+        }
+    }
+
+    func applyLeaderboardData(
+        _ data: LeaderboardData,
+        updatedAt: Date = Date()
+    ) {
+        leaderboardData = data
+        leaderboardUpdatedAt = updatedAt
+        leaderboardError = nil
+    }
+
     func fetchUsageData() async {
         guard let config, let userID = config.userID else { return }
         guard !isLoadingData else { return }
@@ -604,6 +641,10 @@ final class AppState {
         hasLoadedUsageData = false
         isLoadingData = false
         isLoadingHeatmap = false
+        leaderboardData = nil
+        leaderboardUpdatedAt = nil
+        leaderboardError = nil
+        isLoadingLeaderboard = false
         syncStatus = .idle
     }
 

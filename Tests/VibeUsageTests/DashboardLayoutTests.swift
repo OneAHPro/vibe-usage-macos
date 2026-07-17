@@ -20,6 +20,47 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func leaderboardUsesNativeNavigationFromBothEntryPoints() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shell = try String(
+            contentsOf: root.appendingPathComponent("VibeUsage/Views/DashboardShellView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(DashboardPage.leaderboard.title == "排行榜")
+        #expect(shell.contains("selectedPage = .leaderboard"))
+        #expect(shell.components(separatedBy: "selectedPage = .leaderboard").count - 1 == 2)
+        #expect(shell.contains("LeaderboardView()"))
+        #expect(!shell.contains("openURL(\"\\(AppConfig.defaultApiUrl)/rankings\")"))
+    }
+
+    @Test
+    func nativeLeaderboardOmitsUnsupportedFiltersAndUsesRealSections() {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = (try? String(
+            contentsOf: root.appendingPathComponent("VibeUsage/Views/LeaderboardView.swift"),
+            encoding: .utf8
+        )) ?? ""
+
+        #expect(view.contains("今日消费排名"))
+        #expect(view.contains("昨日消费排名"))
+        #expect(view.contains("quotaDailyTop"))
+        #expect(view.contains("quotaYesterdayTop"))
+        #expect(view.contains("tokenTotalTop"))
+        #expect(!view.contains("24H"))
+        #expect(!view.contains("7D"))
+        #expect(!view.contains("30D"))
+        #expect(!view.contains("分工具榜"))
+        #expect(!view.contains("分模型榜"))
+    }
+
+    @Test
     func sidebarNavigationUsesFullRowHitTargets() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

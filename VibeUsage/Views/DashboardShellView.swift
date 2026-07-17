@@ -3,11 +3,13 @@ import SwiftUI
 
 enum DashboardPage: Equatable {
     case usage
+    case leaderboard
     case settings
 
     var title: String {
         switch self {
         case .usage: "Vibe Usage"
+        case .leaderboard: "排行榜"
         case .settings: "设置"
         }
     }
@@ -15,6 +17,7 @@ enum DashboardPage: Equatable {
     var subtitle: String {
         switch self {
         case .usage: "AI 使用与成本仪表盘"
+        case .leaderboard: "new 系统实时用量排名"
         case .settings: "账号、远程数据与应用偏好"
         }
     }
@@ -132,8 +135,9 @@ struct DashboardShellView: View {
             sidebarItem("Vibe Usage", icon: "chart.bar.fill", selected: selectedPage == .usage) {
                 selectedPage = .usage
             }
-            sidebarItem("排行榜", icon: "list.number") {
-                openURL("\(AppConfig.defaultApiUrl)/rankings")
+            sidebarItem("排行榜", icon: "list.number", selected: selectedPage == .leaderboard) {
+                openFilter = nil
+                selectedPage = .leaderboard
             }
             sidebarItem("数据详情", icon: "doc.text.magnifyingglass") {
                 openURL("\(AppConfig.defaultApiUrl)/console/log")
@@ -182,6 +186,9 @@ struct DashboardShellView: View {
             switch selectedPage {
             case .usage:
                 usagePage
+            case .leaderboard:
+                LeaderboardView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .settings:
                 SettingsView(embedded: true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -300,7 +307,8 @@ struct DashboardShellView: View {
                     openURL("\(AppConfig.defaultApiUrl)/console/log")
                 }
                 DashboardActionButton(title: "排行榜", icon: "list.number") {
-                    openURL("\(AppConfig.defaultApiUrl)/rankings")
+                    openFilter = nil
+                    selectedPage = .leaderboard
                 }
                 DashboardActionButton(title: "同步数据", icon: "arrow.clockwise", disabled: appState.syncStatus == .syncing) {
                     refreshData()

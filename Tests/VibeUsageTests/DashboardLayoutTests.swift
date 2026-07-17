@@ -14,6 +14,28 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func leaderboardUsesOfficialSectionSpacing() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let layout = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/DashboardLayout.swift"),
+            encoding: .utf8
+        )
+        let leaderboard = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/LeaderboardView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(layout.contains("static let leaderboardSectionSpacing: CGFloat = 48"))
+        #expect(leaderboard.contains(
+            "VStack(alignment: .leading, spacing: DashboardLayout.leaderboardSectionSpacing)"
+        ))
+        #expect(leaderboard.contains("VStack(alignment: .leading, spacing: 8)"))
+    }
+
+    @Test
     func sidebarPagesProvideInlineNavigationTitles() {
         #expect(DashboardPage.usage.title == "Vibe Usage")
         #expect(DashboardPage.settings.title == "设置")

@@ -8,6 +8,7 @@ struct HeatmapCellTarget: Equatable {
 enum DashboardLayout {
     static let sidebarWidth: CGFloat = 188
     static let contentSpacing: CGFloat = 12
+    static let leaderboardSectionSpacing: CGFloat = 48
     static let chartAxisLabelWidth: CGFloat = 46
     static let heatmapWeekdayLabelWidth: CGFloat = 30
     static let heatmapColumnSpacing: CGFloat = 4

@@ -11,16 +11,7 @@ struct LeaderboardView: View {
                 if appState.leaderboardData == nil && appState.isLoadingLeaderboard {
                     loadingState
                 } else if let data = appState.leaderboardData {
-                    personalRankSection(data)
-                    usageSection(title: "今日榜") {
-                        splitBoards(title: "美金消耗", rows: data.quotaDailyTop, firstCount: 5)
-                    }
-                    usageSection(title: "昨日榜") {
-                        splitBoards(title: "美金消耗", rows: data.quotaYesterdayTop, firstCount: 10)
-                    }
-                    usageSection(title: "总排行") {
-                        splitBoards(title: "美金消耗", rows: data.quotaTotalTop, firstCount: 10)
-                    }
+                    populatedSections(data)
                 } else {
                     errorState
                 }
@@ -33,6 +24,22 @@ struct LeaderboardView: View {
                 await appState.fetchLeaderboard()
             }
         }
+    }
+
+    private func populatedSections(_ data: LeaderboardData) -> some View {
+        VStack(alignment: .leading, spacing: DashboardLayout.leaderboardSectionSpacing) {
+            personalRankSection(data)
+            usageSection(title: "今日榜") {
+                splitBoards(title: "美金消耗", rows: data.quotaDailyTop, firstCount: 5)
+            }
+            usageSection(title: "昨日榜") {
+                splitBoards(title: "美金消耗", rows: data.quotaYesterdayTop, firstCount: 10)
+            }
+            usageSection(title: "总排行") {
+                splitBoards(title: "美金消耗", rows: data.quotaTotalTop, firstCount: 10)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var statusStrip: some View {

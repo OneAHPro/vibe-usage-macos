@@ -412,32 +412,13 @@ struct LeaderboardView: View {
                 } else if let data = appState.leaderboardData {
                     personalRankSection(data)
                     usageSection(title: "今日榜") {
-                        pairedBoards(
-                            leftTitle: "预估消费",
-                            leftRows: data.quotaDailyTop,
-                            leftMetric: .cost,
-                            rightTitle: "Token",
-                            rightRows: data.tokenDailyTop,
-                            rightMetric: .tokens
-                        )
+                        splitBoards(title: "美金消耗", rows: data.quotaDailyTop, firstCount: 5)
                     }
                     usageSection(title: "昨日榜") {
-                        LeaderboardBoardCard(
-                            title: "预估消费",
-                            rows: data.quotaYesterdayTop,
-                            metric: .cost,
-                            quotaPerUnit: appState.quotaPerUnit
-                        )
+                        splitBoards(title: "美金消耗", rows: data.quotaYesterdayTop, firstCount: 10)
                     }
-                    usageSection(title: "累计榜") {
-                        pairedBoards(
-                            leftTitle: "预估消费",
-                            leftRows: data.quotaTotalTop,
-                            leftMetric: .cost,
-                            rightTitle: "Token",
-                            rightRows: data.tokenTotalTop,
-                            rightMetric: .tokens
-                        )
+                    usageSection(title: "总排行") {
+                        splitBoards(title: "美金消耗", rows: data.quotaTotalTop, firstCount: 10)
                     }
                 } else {
                     errorState

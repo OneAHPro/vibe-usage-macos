@@ -45,4 +45,26 @@ struct LeaderboardDataTests {
             quotaPerUnit: 500_000
         ) == "$1.50")
     }
+
+    @Test
+    func splitsRankingsIntoContinuationColumns() {
+        let rows = (1...10).map { rank in
+            LeaderboardRow(
+                userID: rank,
+                username: "user_\(rank)",
+                displayName: nil,
+                avatarURL: nil,
+                tokenUsed: rank * 100,
+                quota: rank * 1_000
+            )
+        }
+
+        let segments = LeaderboardPresentation.splitRows(rows, firstCount: 5)
+
+        #expect(segments.count == 2)
+        #expect(segments[0].rows.map(\.userID) == [1, 2, 3, 4, 5])
+        #expect(segments[0].rankOffset == 0)
+        #expect(segments[1].rows.map(\.userID) == [6, 7, 8, 9, 10])
+        #expect(segments[1].rankOffset == 5)
+    }
 }

@@ -13,32 +13,13 @@ struct LeaderboardView: View {
                 } else if let data = appState.leaderboardData {
                     personalRankSection(data)
                     usageSection(title: "今日榜") {
-                        pairedBoards(
-                            leftTitle: "美金消耗",
-                            leftRows: data.quotaDailyTop,
-                            leftMetric: .cost,
-                            rightTitle: "Token",
-                            rightRows: data.tokenDailyTop,
-                            rightMetric: .tokens
-                        )
+                        splitBoards(title: "美金消耗", rows: data.quotaDailyTop, firstCount: 5)
                     }
                     usageSection(title: "昨日榜") {
-                        LeaderboardBoardCard(
-                            title: "美金消耗",
-                            rows: data.quotaYesterdayTop,
-                            metric: .cost,
-                            quotaPerUnit: appState.quotaPerUnit
-                        )
+                        splitBoards(title: "美金消耗", rows: data.quotaYesterdayTop, firstCount: 10)
                     }
-                    usageSection(title: "累计榜") {
-                        pairedBoards(
-                            leftTitle: "美金消耗",
-                            leftRows: data.quotaTotalTop,
-                            leftMetric: .cost,
-                            rightTitle: "Token",
-                            rightRows: data.tokenTotalTop,
-                            rightMetric: .tokens
-                        )
+                    usageSection(title: "总排行") {
+                        splitBoards(title: "美金消耗", rows: data.quotaTotalTop, firstCount: 10)
                     }
                 } else {
                     errorState
@@ -123,45 +104,48 @@ struct LeaderboardView: View {
         }
     }
 
-    private func pairedBoards(
-        leftTitle: String,
-        leftRows: [LeaderboardRow],
-        leftMetric: LeaderboardMetric,
-        rightTitle: String,
-        rightRows: [LeaderboardRow],
-        rightMetric: LeaderboardMetric
+    private func splitBoards(
+        title: String,
+        rows: [LeaderboardRow],
+        firstCount: Int
     ) -> some View {
-        ViewThatFits(in: .horizontal) {
+        let segments = LeaderboardPresentation.splitRows(rows, firstCount: firstCount)
+
+        return ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: DashboardLayout.contentSpacing) {
                 LeaderboardBoardCard(
-                    title: leftTitle,
-                    rows: leftRows,
-                    metric: leftMetric,
-                    quotaPerUnit: appState.quotaPerUnit
+                    title: title,
+                    rows: segments[0].rows,
+                    metric: .cost,
+                    quotaPerUnit: appState.quotaPerUnit,
+                    rankOffset: segments[0].rankOffset
                 )
                 .frame(minWidth: 340)
 
                 LeaderboardBoardCard(
-                    title: rightTitle,
-                    rows: rightRows,
-                    metric: rightMetric,
-                    quotaPerUnit: appState.quotaPerUnit
+                    title: title,
+                    rows: segments[1].rows,
+                    metric: .cost,
+                    quotaPerUnit: appState.quotaPerUnit,
+                    rankOffset: segments[1].rankOffset
                 )
                 .frame(minWidth: 340)
             }
 
             VStack(spacing: DashboardLayout.contentSpacing) {
                 LeaderboardBoardCard(
-                    title: leftTitle,
-                    rows: leftRows,
-                    metric: leftMetric,
-                    quotaPerUnit: appState.quotaPerUnit
+                    title: title,
+                    rows: segments[0].rows,
+                    metric: .cost,
+                    quotaPerUnit: appState.quotaPerUnit,
+                    rankOffset: segments[0].rankOffset
                 )
                 LeaderboardBoardCard(
-                    title: rightTitle,
-                    rows: rightRows,
-                    metric: rightMetric,
-                    quotaPerUnit: appState.quotaPerUnit
+                    title: title,
+                    rows: segments[1].rows,
+                    metric: .cost,
+                    quotaPerUnit: appState.quotaPerUnit,
+                    rankOffset: segments[1].rankOffset
                 )
             }
         }
@@ -305,8 +289,23 @@ private struct LeaderboardBoardCard: View {
     let rows: [LeaderboardRow]
     let metric: LeaderboardMetric
     let quotaPerUnit: Double
+    let rankOffset: Int
 
     private let leaderboardRowHeight: CGFloat = 44
+
+    init(
+        title: String,
+        rows: [LeaderboardRow],
+        metric: LeaderboardMetric,
+        quotaPerUnit: Double,
+        rankOffset: Int = 0
+    ) {
+        self.title = title
+        self.rows = rows
+        self.metric = metric
+        self.quotaPerUnit = quotaPerUnit
+        self.rankOffset = rankOffset
+    }
 
     private var leaderboardColumns: [LeaderboardTableColumn] {
         if metric == .cost {
@@ -350,7 +349,7 @@ private struct LeaderboardBoardCard: View {
                     .frame(height: 82)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                    leaderboardRow(row, rank: index + 1)
+                    leaderboardRow(row, rank: rankOffset + index + 1)
                     if index < rows.count - 1 {
                         Divider()
                             .overlay(AppTheme.separator.opacity(0.7))

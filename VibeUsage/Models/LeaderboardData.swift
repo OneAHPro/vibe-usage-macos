@@ -57,6 +57,11 @@ struct LeaderboardData: Decodable, Equatable, Sendable {
     }
 }
 
+struct LeaderboardSegment: Equatable, Sendable {
+    let rows: [LeaderboardRow]
+    let rankOffset: Int
+}
+
 enum LeaderboardPresentation {
     static func rankLabel(_ value: LeaderboardPersonalRank?) -> String {
         guard let value, value.rank > 0 else { return "未上榜" }
@@ -66,5 +71,22 @@ enum LeaderboardPresentation {
     static func costLabel(quota: Int, quotaPerUnit: Double) -> String {
         let divisor = quotaPerUnit > 0 ? quotaPerUnit : 500_000
         return Formatters.formatCost(Double(max(quota, 0)) / divisor)
+    }
+
+    static func splitRows(
+        _ rows: [LeaderboardRow],
+        firstCount: Int
+    ) -> [LeaderboardSegment] {
+        let splitIndex = max(firstCount, 0)
+        return [
+            LeaderboardSegment(
+                rows: Array(rows.prefix(splitIndex)),
+                rankOffset: 0
+            ),
+            LeaderboardSegment(
+                rows: Array(rows.dropFirst(splitIndex)),
+                rankOffset: splitIndex
+            ),
+        ]
     }
 }

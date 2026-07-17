@@ -24,11 +24,11 @@ The page calls authenticated `GET /api/user/leaderboard` through the existing `A
 
 The response fields used by the app are:
 
-- `quota_daily_top`: today's estimated-spend leaderboard, five rows.
+- `quota_daily_top`: today's US-dollar-spend leaderboard, ten rows.
 - `token_daily_top`: today's token leaderboard, five rows.
 - `quota_yesterday_top`: yesterday's estimated-spend leaderboard, twenty rows.
-- `quota_total_top`: cumulative estimated-spend leaderboard, three rows.
-- `token_total_top`: cumulative token leaderboard, three rows.
+- `quota_total_top`: total US-dollar-spend leaderboard, up to twenty rows.
+- `token_total_top`: total token leaderboard, up to twenty rows.
 - `my_daily_quota_rank`: the signed-in user's rank, spend, and tokens for today.
 - `my_yesterday_quota_rank`: the signed-in user's rank, spend, and tokens for yesterday.
 
@@ -55,16 +55,17 @@ The leaderboard page is a single scrollable native view with hidden scroll indic
    - A missing personal rank is shown as `未上榜`, not `0` and not a fabricated `100+`.
 
 3. **今日榜**
-   - Two equal-width cards when space allows: `美金消耗` from `quota_daily_top` and `Token` from `token_daily_top`.
-   - Each board uses a real table header and fixed columns instead of an avatar-led summary row.
-   - The spend board orders its columns as `#`, `用户`, `Token`, `美金消耗`; the token board orders them as `#`, `用户`, `美金消耗`, `Token` when quota exists so the board's primary ranking metric is always the rightmost highlighted value. If the endpoint omits quota for every token-ranked row, the empty cost column is omitted too.
+   - One ten-row `美金消耗` ranking is split into two equal-width cards: ranks 1–5 on the left and 6–10 on the right.
+   - Both cards use columns `#`, `用户`, `Token`, `美金消耗`; a separate token-ranked card is intentionally omitted because the spend rows already include token usage.
 
 4. **昨日榜**
-   - One full-width `美金消耗` card from `quota_yesterday_top`.
-   - No empty token card is rendered because the endpoint does not provide a yesterday token leaderboard.
+   - The twenty-row `美金消耗` ranking is split into ranks 1–10 on the left and 11–20 on the right.
 
-5. **累计榜**
-   - Two equal-width cards: `美金消耗` from `quota_total_top` and `Token` from `token_total_top`.
+5. **总排行**
+   - The twenty-row `美金消耗` ranking is split into ranks 1–10 on the left and 11–20 on the right.
+   - The independent `token_total_top` card is not rendered because `quota_total_top` already carries token usage.
+
+The right-hand card keeps the original rank sequence instead of restarting at 1.
 
 On a narrow window, paired cards stack vertically. No horizontal scrolling is required.
 

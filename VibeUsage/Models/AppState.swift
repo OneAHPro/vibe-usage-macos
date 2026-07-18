@@ -113,6 +113,7 @@ final class AppState {
     var buckets: [UsageBucket] = []
     var heatmapBuckets: [UsageBucket] = []
     var sessions: [UsageSession] = []
+    var recentRequests: [UsageRequestRecord]?
     var hasAnyData: Bool = false
     var isLoadingData: Bool = false
     var hasLoadedUsageData: Bool = false
@@ -197,6 +198,7 @@ final class AppState {
             DashboardData(
                 buckets: buckets,
                 sessions: sessions,
+                recentRequests: recentRequests,
                 cutoff: key.cutoff,
                 filters: key.filters
             )
@@ -518,6 +520,7 @@ final class AppState {
         withAnimation(.easeInOut(duration: 0.22)) {
             buckets = response.buckets
             sessions = response.sessions ?? []
+            recentRequests = response.recentRequests
             hasAnyData = response.hasAnyData
             heatmapBuckets = response.buckets
             loadedTimeRange = range
@@ -743,6 +746,7 @@ final class AppState {
         buckets = []
         heatmapBuckets = []
         sessions = []
+        recentRequests = nil
         timeRange = .oneDay
         loadedTimeRange = .oneDay
         hasAnyData = false

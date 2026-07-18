@@ -493,21 +493,32 @@ struct DashboardLayoutTests {
     }
 
     @Test
-    func detailRecordsOmitTheProjectColumn() {
+    func detailedRecordsUseSevenRequestColumns() throws {
         #expect(DashboardLayout.recordColumnTitles == [
-            "日期", "终端", "工具", "模型", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
+            "日期", "模型", "首字", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
         ])
-        #expect(DashboardLayout.recordMinimumTableWidth == 950)
+        #expect(DashboardLayout.recordMinimumTableWidth == 820)
         #expect(DashboardLayout.recordEdgeInset == 16)
 
         let compactWidths = DashboardLayout.recordColumnWidths(for: 760)
-        #expect(abs(compactWidths.reduce(0, +) - 950) < 0.001)
+        #expect(compactWidths.count == 7)
+        #expect(abs(compactWidths.reduce(0, +) - 820) < 0.001)
 
         let wideWidths = DashboardLayout.recordColumnWidths(for: 1_200)
         #expect(abs(wideWidths.reduce(0, +) - 1_200) < 0.001)
-        #expect(wideWidths[3] == compactWidths[3])
-        #expect(wideWidths[4] == compactWidths[4])
         #expect(wideWidths[0] > compactWidths[0])
         #expect(wideWidths.last! > compactWidths.last!)
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/UsageRecordsView.swift"),
+            encoding: .utf8
+        )
+        #expect(!view.contains("终端"))
+        #expect(!view.contains("工具"))
+        #expect(view.contains("首字"))
     }
 }

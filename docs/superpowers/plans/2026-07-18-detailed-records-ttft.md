@@ -185,8 +185,8 @@ For valid positive milliseconds, format with a POSIX locale and classify exact n
 ```swift
 let seconds = milliseconds / 1_000
 firstResponseTime = String(
-    format: Locale(identifier: "en_US_POSIX"),
-    "%.1f s",
+    format: "%.1f s",
+    locale: Locale(identifier: "en_US_POSIX"),
     seconds
 )
 if seconds < 3 {
@@ -312,7 +312,7 @@ Expected: the focused and full Swift suites pass and the diff has no whitespace 
 Run the repository's existing Release build/install workflow:
 
 ```bash
-./scripts/build-app.sh --release
+./scripts/build-app.sh
 ```
 
 Expected: the app bundle builds successfully with no Swift compiler errors.

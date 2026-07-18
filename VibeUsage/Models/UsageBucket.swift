@@ -43,8 +43,40 @@ struct UsageBucket: Codable, Identifiable, Equatable {
     }
 }
 
+struct UsageRequestRecord: Codable, Identifiable, Equatable {
+    let id: Int
+    let createdAt: String
+    let source: String
+    let model: String
+    let project: String
+    let inputTokens: Int
+    let outputTokens: Int
+    let cachedInputTokens: Int
+    let reasoningOutputTokens: Int
+    let totalTokens: Int
+    let estimatedCost: Double?
+    let firstResponseTimeMs: Double?
+
+    var date: Date? {
+        ISO8601Parser.date(from: createdAt)
+    }
+}
+
 struct UsageResponse: Codable {
     let buckets: [UsageBucket]
     let sessions: [UsageSession]?
+    let recentRequests: [UsageRequestRecord]?
     let hasAnyData: Bool
+
+    init(
+        buckets: [UsageBucket],
+        sessions: [UsageSession]?,
+        recentRequests: [UsageRequestRecord]? = nil,
+        hasAnyData: Bool
+    ) {
+        self.buckets = buckets
+        self.sessions = sessions
+        self.recentRequests = recentRequests
+        self.hasAnyData = hasAnyData
+    }
 }

@@ -56,7 +56,7 @@ struct APIClientTests {
             #expect(request.value(forHTTPHeaderField: "New-Api-User") == "7")
             return response(
                 for: request,
-                body: #"{"success":true,"message":"","data":{"buckets":[{"source":"mac","model":"gpt-5.6-sol","project":"pro","hostname":"api.anhepro.com","bucketStart":"2026-07-16T01:00:00Z","inputTokens":110,"outputTokens":30,"cacheCreationInputTokens":10,"cachedInputTokens":60,"reasoningOutputTokens":0,"totalTokens":210,"estimatedCost":1.5}],"sessions":[],"hasAnyData":true}}"#
+                body: #"{"success":true,"message":"","data":{"buckets":[{"source":"mac","model":"gpt-5.6-sol","project":"pro","hostname":"api.anhepro.com","bucketStart":"2026-07-16T01:00:00Z","inputTokens":110,"outputTokens":30,"cacheCreationInputTokens":10,"cachedInputTokens":60,"reasoningOutputTokens":0,"totalTokens":210,"estimatedCost":1.5}],"sessions":[],"recentRequests":[{"id":991,"createdAt":"2026-07-16T01:32:00Z","source":"new-api","model":"gpt-5.6-sol","project":"pro","inputTokens":110,"outputTokens":30,"cachedInputTokens":60,"reasoningOutputTokens":0,"totalTokens":200,"estimatedCost":1.5,"firstResponseTimeMs":2400}],"hasAnyData":true}}"#
             )
         }
         let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
@@ -67,6 +67,12 @@ struct APIClientTests {
         #expect(usage.buckets.count == 1)
         #expect(usage.buckets[0].computedTotal == 210)
         #expect(usage.buckets[0].estimatedCost == 1.5)
+        #expect(usage.recentRequests?.count == 1)
+        let request = try #require(usage.recentRequests?.first)
+        #expect(request.id == 991)
+        #expect(request.model == "gpt-5.6-sol")
+        #expect(request.firstResponseTimeMs == 2_400)
+        #expect(request.outputTokens == 30)
     }
 
     @Test
@@ -87,6 +93,7 @@ struct APIClientTests {
         let usage = try await client.fetchUsage(range: .all)
 
         #expect(!usage.hasAnyData)
+        #expect(usage.recentRequests == nil)
     }
 
     @Test

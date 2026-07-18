@@ -40,6 +40,38 @@ struct AppStateRangeTests {
     }
 
     @Test
+    func committingUsageResponsePreservesRequestRecords() {
+        let request = UsageRequestRecord(
+            id: 91,
+            createdAt: "2026-07-18T10:00:00Z",
+            source: "new-api",
+            model: "gpt-5.6-sol",
+            project: "pro",
+            inputTokens: 10,
+            outputTokens: 20,
+            cachedInputTokens: 30,
+            reasoningOutputTokens: 0,
+            totalTokens: 60,
+            estimatedCost: 0.01,
+            firstResponseTimeMs: 2_400
+        )
+        let state = AppState()
+
+        state.applyUsageResponse(
+            UsageResponse(
+                buckets: [],
+                sessions: [],
+                recentRequests: [request],
+                hasAnyData: true
+            ),
+            for: .oneDay
+        )
+
+        #expect(state.recentRequests == [request])
+        #expect(state.dashboardData.recentRows.first?.firstResponseTime == "2.4 s")
+    }
+
+    @Test
     func allHistoryUsesExplicitLoadingCopy() {
         let state = AppState()
         state.timeRange = .all

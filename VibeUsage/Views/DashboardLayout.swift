@@ -14,12 +14,12 @@ enum DashboardLayout {
     static let heatmapColumnSpacing: CGFloat = 4
     static let heatmapRowSpacing: CGFloat = 7
     static let recordColumnTitles = [
-        "日期", "终端", "工具", "模型", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
+        "日期", "模型", "首字", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
     ]
-    static let recordMinimumTableWidth: CGFloat = 950
+    static let recordMinimumTableWidth: CGFloat = 820
     static let recordEdgeInset: CGFloat = 16
-    private static let recordBaseColumnWidths: [CGFloat] = [130, 110, 85, 135, 105, 125, 130, 130]
-    private static let recordExtraWidthWeights: [CGFloat] = [0.24, 0.24, 0, 0, 0, 0.16, 0.16, 0.20]
+    private static let recordBaseColumnWidths: [CGFloat] = [135, 155, 85, 105, 110, 110, 120]
+    private static let recordExtraWidthWeights: [CGFloat] = [0.18, 0.26, 0.08, 0.10, 0.12, 0.12, 0.14]
 
     static func summaryColumnCount(for width: CGFloat) -> Int {
         width >= 900 ? 5 : 2

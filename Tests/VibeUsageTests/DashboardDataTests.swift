@@ -100,6 +100,130 @@ struct DashboardDataTests {
     }
 
     @Test
+    func requestRecordsUseExactFirstResponseThresholds() {
+        let records = [
+            request(id: 1, createdAt: "2026-07-18T10:00:01Z", firstResponseTimeMs: 2_900),
+            request(id: 2, createdAt: "2026-07-18T10:00:02Z", firstResponseTimeMs: 3_000),
+            request(id: 3, createdAt: "2026-07-18T10:00:03Z", firstResponseTimeMs: 9_900),
+            request(id: 4, createdAt: "2026-07-18T10:00:04Z", firstResponseTimeMs: 10_000),
+        ]
+
+        let data = DashboardData(
+            buckets: [],
+            sessions: [],
+            recentRequests: records,
+            cutoff: nil,
+            filters: .init()
+        )
+
+        #expect(data.recentRows.map(\.firstResponseTime) == ["10.0 s", "9.9 s", "3.0 s", "2.9 s"])
+        #expect(data.recentRows.map(\.firstResponseTier) == [.critical, .slow, .slow, .fast])
+        #expect(data.recentRows.allSatisfy { $0.model == "gpt-test" })
+        #expect(data.recentRows.first?.outputTokens == "30")
+        #expect(data.recentRows.first?.cachedTokens == "40")
+        #expect(data.recentRows.first?.estimatedCost == "$0.02")
+    }
+
+    @Test
+    func absentRequestCollectionFallsBackToAggregateRowsWithUnavailableTTFT() {
+        let fallback = bucket(
+            source: "codex",
+            project: "radar",
+            bucketStart: "2026-07-18T10:00:00Z",
+            input: 10,
+            output: 5,
+            reasoning: 0,
+            cached: 2,
+            cost: 0.01
+        )
+
+        let data = DashboardData(
+            buckets: [fallback],
+            sessions: [],
+            recentRequests: nil,
+            cutoff: nil,
+            filters: .init()
+        )
+
+        #expect(data.recentRows.count == 1)
+        #expect(data.recentRows.first?.firstResponseTime == "—")
+        #expect(data.recentRows.first?.firstResponseTier == .unavailable)
+    }
+
+    @Test
+    func explicitEmptyRequestCollectionDoesNotShowAggregateRows() {
+        let fallback = bucket(
+            source: "codex",
+            project: "radar",
+            bucketStart: "2026-07-18T10:00:00Z",
+            input: 10,
+            output: 5,
+            reasoning: 0,
+            cached: 2,
+            cost: 0.01
+        )
+
+        let data = DashboardData(
+            buckets: [fallback],
+            sessions: [],
+            recentRequests: [],
+            cutoff: nil,
+            filters: .init()
+        )
+
+        #expect(data.recentRows.isEmpty)
+    }
+
+    @Test
+    func requestRecordsRespectFiltersAndRemainCappedAtFifty() {
+        var records = (0..<55).map { index in
+            request(
+                id: index,
+                createdAt: "2026-07-18T10:00:00Z",
+                firstResponseTimeMs: 1_000
+            )
+        }
+        records.append(request(
+            id: 100,
+            createdAt: "2026-07-18T10:00:00Z",
+            firstResponseTimeMs: 1_000,
+            source: "filtered-out"
+        ))
+
+        let data = DashboardData(
+            buckets: [],
+            sessions: [],
+            recentRequests: records,
+            cutoff: nil,
+            filters: FilterState(
+                sources: ["new-api"],
+                models: ["gpt-test"],
+                projects: ["radar"],
+                hostnames: []
+            )
+        )
+
+        #expect(data.recentRows.count == 50)
+        #expect(data.recentRows.first?.id == "54")
+        #expect(data.recentRows.last?.id == "5")
+    }
+
+    @Test
+    func invalidFirstResponseTimeIsUnavailable() {
+        let invalidValues: [Double?] = [nil, 0, -1, .infinity, .nan]
+
+        for (index, value) in invalidValues.enumerated() {
+            let row = UsageRecordRow(record: request(
+                id: index,
+                createdAt: "2026-07-18T10:00:00Z",
+                firstResponseTimeMs: value
+            ))
+            #expect(row.firstResponseTime == "—")
+            #expect(row.firstResponseTier == .unavailable)
+        }
+    }
+
+    @Test
     func heatmapAggregatesTokensByWeekdayAndHour() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -256,6 +380,30 @@ struct DashboardDataTests {
             activeSeconds: active,
             messageCount: messages,
             userMessageCount: userMessages
+        )
+    }
+
+    private func request(
+        id: Int,
+        createdAt: String,
+        firstResponseTimeMs: Double?,
+        source: String = "new-api",
+        model: String = "gpt-test",
+        project: String = "radar"
+    ) -> UsageRequestRecord {
+        UsageRequestRecord(
+            id: id,
+            createdAt: createdAt,
+            source: source,
+            model: model,
+            project: project,
+            inputTokens: 20,
+            outputTokens: 30,
+            cachedInputTokens: 40,
+            reasoningOutputTokens: 0,
+            totalTokens: 90,
+            estimatedCost: 0.02,
+            firstResponseTimeMs: firstResponseTimeMs
         )
     }
 }

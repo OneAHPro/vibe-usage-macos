@@ -46,12 +46,19 @@ struct SecondaryDashboardMetrics: Equatable {
     }
 }
 
+enum FirstResponseTimeTier: Equatable {
+    case fast
+    case slow
+    case critical
+    case unavailable
+}
+
 struct UsageRecordRow: Identifiable, Equatable {
     let id: String
     let date: String
-    let hostname: String
-    let source: String
     let model: String
+    let firstResponseTime: String
+    let firstResponseTier: FirstResponseTimeTier
     let inputTokens: String
     let outputTokens: String
     let cachedTokens: String
@@ -60,17 +67,55 @@ struct UsageRecordRow: Identifiable, Equatable {
     init(bucket: UsageBucket) {
         id = bucket.id
         date = Formatters.formatDateTime(bucket.bucketStart)
-        hostname = Self.displayValue(bucket.hostname)
-        source = Self.displayValue(bucket.source)
         model = Self.displayValue(bucket.model)
+        firstResponseTime = "—"
+        firstResponseTier = .unavailable
         inputTokens = Formatters.formatNumber(bucket.inputTokens)
         outputTokens = Formatters.formatNumber(bucket.outputTokens + bucket.reasoningOutputTokens)
         cachedTokens = Formatters.formatNumber(bucket.cachedInputTokens)
         estimatedCost = Formatters.formatCost(bucket.estimatedCost ?? 0)
     }
 
+    init(record: UsageRequestRecord) {
+        id = String(record.id)
+        date = Formatters.formatDateTime(record.createdAt)
+        model = Self.displayValue(record.model)
+        (firstResponseTime, firstResponseTier) = Self.formatFirstResponseTime(
+            milliseconds: record.firstResponseTimeMs
+        )
+        inputTokens = Formatters.formatNumber(record.inputTokens)
+        outputTokens = Formatters.formatNumber(record.outputTokens + record.reasoningOutputTokens)
+        cachedTokens = Formatters.formatNumber(record.cachedInputTokens)
+        estimatedCost = Formatters.formatCost(record.estimatedCost ?? 0)
+    }
+
     private static func displayValue(_ value: String) -> String {
         value.isEmpty ? "—" : value
+    }
+
+    private static func formatFirstResponseTime(
+        milliseconds: Double?
+    ) -> (String, FirstResponseTimeTier) {
+        guard let milliseconds,
+              milliseconds.isFinite,
+              milliseconds > 0
+        else {
+            return ("—", .unavailable)
+        }
+
+        let seconds = milliseconds / 1_000
+        let text = String(
+            format: "%.1f s",
+            locale: Locale(identifier: "en_US_POSIX"),
+            seconds
+        )
+        if seconds < 3 {
+            return (text, .fast)
+        }
+        if seconds < 10 {
+            return (text, .slow)
+        }
+        return (text, .critical)
     }
 }
 
@@ -84,6 +129,7 @@ struct DashboardData {
     init(
         buckets: [UsageBucket],
         sessions: [UsageSession],
+        recentRequests: [UsageRequestRecord]? = nil,
         cutoff: Date?,
         filters: FilterState
     ) {
@@ -108,7 +154,21 @@ struct DashboardData {
         self.sessions = filteredSessions
         let recentBuckets = Array(filteredBuckets.sorted { $0.bucketStart > $1.bucketStart }.prefix(50))
         self.recentBuckets = recentBuckets
-        self.recentRows = recentBuckets.map(UsageRecordRow.init)
+        if let recentRequests {
+            let filteredRequests = recentRequests.filter { record in
+                if let cutoff, let date = record.date, date < cutoff { return false }
+                if !filters.sources.isEmpty && !filters.sources.contains(record.source) { return false }
+                if !filters.models.isEmpty && !filters.models.contains(record.model) { return false }
+                if !filters.projects.isEmpty && !filters.projects.contains(record.project) { return false }
+                return true
+            }
+            self.recentRows = filteredRequests
+                .sorted { $0.id > $1.id }
+                .prefix(50)
+                .map(UsageRecordRow.init)
+        } else {
+            self.recentRows = recentBuckets.map(UsageRecordRow.init)
+        }
 
         let projects = Set(
             filteredBuckets.map(\.project).filter { !$0.isEmpty }

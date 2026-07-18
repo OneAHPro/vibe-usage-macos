@@ -55,13 +55,12 @@ struct UsageRecordsView: View {
     private func headerRow(widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
             headerCell("日期", width: widths[0], alignment: .leading, horizontalPadding: DashboardLayout.recordEdgeInset)
-            headerCell("终端", width: widths[1], alignment: .leading)
-            headerCell("工具", width: widths[2], alignment: .leading)
-            headerCell("模型", width: widths[3], alignment: .leading)
-            headerCell("输入 TOKEN", width: widths[4], alignment: .trailing)
-            headerCell("输出 TOKEN", width: widths[5], alignment: .trailing)
-            headerCell("缓存 TOKEN", width: widths[6], alignment: .trailing)
-            headerCell("预估费用", width: widths[7], alignment: .trailing, horizontalPadding: DashboardLayout.recordEdgeInset)
+            headerCell("模型", width: widths[1], alignment: .leading)
+            headerCell("首字", width: widths[2], alignment: .center)
+            headerCell("输入 TOKEN", width: widths[3], alignment: .trailing)
+            headerCell("输出 TOKEN", width: widths[4], alignment: .trailing)
+            headerCell("缓存 TOKEN", width: widths[5], alignment: .trailing)
+            headerCell("预估费用", width: widths[6], alignment: .trailing, horizontalPadding: DashboardLayout.recordEdgeInset)
         }
         .frame(height: 38)
         .background(AppTheme.subtleSurface)
@@ -76,15 +75,14 @@ struct UsageRecordsView: View {
                 alignment: .leading,
                 horizontalPadding: DashboardLayout.recordEdgeInset
             )
-            valueCell(row.hostname, width: widths[1], alignment: .leading)
-            valueCell(row.source, width: widths[2], alignment: .leading, badge: true)
-            valueCell(row.model, width: widths[3], alignment: .leading)
-            valueCell(row.inputTokens, width: widths[4], alignment: .trailing)
-            valueCell(row.outputTokens, width: widths[5], alignment: .trailing, emphasized: true)
-            valueCell(row.cachedTokens, width: widths[6], alignment: .trailing)
+            valueCell(row.model, width: widths[1], alignment: .leading)
+            firstResponseBadge(row, width: widths[2])
+            valueCell(row.inputTokens, width: widths[3], alignment: .trailing)
+            valueCell(row.outputTokens, width: widths[4], alignment: .trailing, emphasized: true)
+            valueCell(row.cachedTokens, width: widths[5], alignment: .trailing)
             valueCell(
                 row.estimatedCost,
-                width: widths[7],
+                width: widths[6],
                 alignment: .trailing,
                 cost: true,
                 horizontalPadding: DashboardLayout.recordEdgeInset
@@ -112,7 +110,6 @@ struct UsageRecordsView: View {
         _ text: String,
         width: CGFloat,
         alignment: Alignment,
-        badge: Bool = false,
         emphasized: Bool = false,
         cost: Bool = false,
         horizontalPadding: CGFloat = 8
@@ -122,11 +119,45 @@ struct UsageRecordsView: View {
             .foregroundStyle(cost ? Color(red: 0.06, green: 0.73, blue: 0.51) : (emphasized ? AppTheme.primaryText : AppTheme.secondaryText))
             .lineLimit(1)
             .truncationMode(.middle)
-            .padding(.horizontal, badge ? 6 : horizontalPadding)
-            .padding(.vertical, badge ? 3 : 0)
-            .background(badge ? AppTheme.selectionBackground : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: badge ? 4 : 0))
+            .padding(.horizontal, horizontalPadding)
             .frame(width: width, alignment: alignment)
     }
 
+    private func firstResponseBadge(_ row: UsageRecordRow, width: CGFloat) -> some View {
+        Text(row.firstResponseTime)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(firstResponseForeground(row.firstResponseTier))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(firstResponseBackground(row.firstResponseTier))
+            .clipShape(Capsule())
+            .frame(width: width, alignment: .center)
+    }
+
+    private func firstResponseForeground(_ tier: FirstResponseTimeTier) -> Color {
+        switch tier {
+        case .fast:
+            Color(red: 0.08, green: 0.55, blue: 0.24)
+        case .slow:
+            Color(red: 0.84, green: 0.31, blue: 0.24)
+        case .critical:
+            Color(red: 0.76, green: 0.08, blue: 0.11)
+        case .unavailable:
+            AppTheme.tertiaryText
+        }
+    }
+
+    private func firstResponseBackground(_ tier: FirstResponseTimeTier) -> Color {
+        switch tier {
+        case .fast:
+            Color(red: 0.18, green: 0.72, blue: 0.34).opacity(0.14)
+        case .slow:
+            Color(red: 0.95, green: 0.42, blue: 0.34).opacity(0.14)
+        case .critical:
+            Color(red: 0.88, green: 0.12, blue: 0.16).opacity(0.24)
+        case .unavailable:
+            .clear
+        }
+    }
 }

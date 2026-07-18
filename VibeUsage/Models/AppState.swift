@@ -250,7 +250,6 @@ final class AppState {
         menuBarBuckets.reduce(0) { $0 + $1.computedTotal }
     }
     // MARK: - Services (initialized after launch)
-    private var syncScheduler: SyncScheduler?
     private var rateLimitCoordinator: RateLimitCoordinator?
     private var config: VibeUsageConfig?
     private let dependencies: AppStateDependencies
@@ -314,9 +313,7 @@ final class AppState {
                 userID
             )
             let user = try await client.fetchCurrentUser()
-            finishAuthentication(user, apiURL: config.apiUrl ?? AppConfig.defaultApiUrl)
-            await loadQuotaPerUnitOnce()
-            _ = await refreshUsageSnapshot(for: timeRange)
+            await finishAuthentication(user, apiURL: config.apiUrl ?? AppConfig.defaultApiUrl)
         } catch {
             clearRemoteSession()
         }
@@ -335,9 +332,7 @@ final class AppState {
                 accountUsername = username
                 requiresTwoFactor = true
             case .authenticated(let user):
-                finishAuthentication(user, apiURL: AppConfig.defaultApiUrl)
-                await loadQuotaPerUnitOnce()
-                _ = await refreshUsageSnapshot(for: timeRange)
+                await finishAuthentication(user, apiURL: AppConfig.defaultApiUrl)
             }
         } catch {
             authenticationError = error.localizedDescription
@@ -353,9 +348,7 @@ final class AppState {
         do {
             let client = dependencies.makeClient(AppConfig.defaultApiUrl, nil)
             let user = try await client.verifyTwoFactor(code: code)
-            finishAuthentication(user, apiURL: AppConfig.defaultApiUrl)
-            await loadQuotaPerUnitOnce()
-            _ = await refreshUsageSnapshot(for: timeRange)
+            await finishAuthentication(user, apiURL: AppConfig.defaultApiUrl)
         } catch {
             authenticationError = error.localizedDescription
         }
@@ -380,19 +373,7 @@ final class AppState {
     // MARK: - Sync
 
     func triggerSync() async {
-        guard syncStatus != .syncing else { return }
-        syncStatus = .syncing
-        _ = await refreshUsageSnapshot(for: timeRange)
-        guard isConfigured else { return }
-        if case .error = syncStatus { return }
-
-        syncStatus = .success
-        lastSyncTime = dependencies.now()
-        lastSyncMessage = "new 系统数据已更新"
-        try? await Task.sleep(for: .seconds(3))
-        if syncStatus == .success {
-            syncStatus = .idle
-        }
+        await refreshUsageManually()
     }
 
     // MARK: - Data Fetching
@@ -703,18 +684,10 @@ final class AppState {
         }
     }
 
-    private func startScheduler() {
-        syncScheduler?.stop()
-        syncScheduler = SyncScheduler(interval: 1800) { [weak self] in
-            await self?.triggerSync()
-        }
-        syncScheduler?.start()
-    }
-
     private func finishAuthentication(
         _ user: AuthenticatedUser,
         apiURL: String
-    ) {
+    ) async {
         let config = VibeUsageConfig(
             apiKey: nil,
             apiUrl: apiURL,
@@ -726,11 +699,13 @@ final class AppState {
         self.config = config
         accountUsername = user.displayName?.isEmpty == false ? user.displayName : user.username
         updateAccountMetrics(from: user)
-        isConfigured = true
-        isCheckingSession = false
         requiresTwoFactor = false
         authenticationError = nil
-        startScheduler()
+        await loadQuotaPerUnitOnce()
+        _ = await refreshUsageSnapshot(for: timeRange)
+        guard self.config != nil else { return }
+        isConfigured = true
+        isCheckingSession = false
     }
 
     private func clearRemoteSession() {
@@ -741,8 +716,6 @@ final class AppState {
             }
         }
 
-        syncScheduler?.stop()
-        syncScheduler = nil
         dependencies.clearConfig()
         config = nil
         isConfigured = false

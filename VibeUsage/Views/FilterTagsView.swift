@@ -154,8 +154,7 @@ struct FilterTagsView: View {
                 let isActive = appState.timeRange == range
                 Button {
                     guard !appState.isLoadingData, appState.timeRange != range else { return }
-                    appState.timeRange = range
-                    Task { await appState.fetchUsageData() }
+                    Task { await appState.selectTimeRange(range) }
                 } label: {
                     Text(range.displayLabel)
                         .font(.system(size: 12, weight: isActive ? .semibold : .regular))

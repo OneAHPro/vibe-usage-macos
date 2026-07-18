@@ -21,11 +21,6 @@ struct LeaderboardView: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task {
-            if appState.leaderboardData == nil {
-                await appState.fetchLeaderboard()
-            }
-        }
     }
 
     private func populatedSections(_ data: LeaderboardData) -> some View {
@@ -71,7 +66,7 @@ struct LeaderboardView: View {
             Spacer()
 
             Button {
-                Task { await appState.fetchLeaderboard() }
+                Task { await appState.refreshLeaderboardManually() }
             } label: {
                 Label("刷新", systemImage: "arrow.clockwise")
                     .font(.system(size: 10, weight: .medium))

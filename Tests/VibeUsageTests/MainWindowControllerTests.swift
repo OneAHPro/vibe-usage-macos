@@ -35,4 +35,25 @@ struct MainWindowControllerTests {
         #expect(window.isVisible == false)
         #expect(controller.makeWindowIfNeeded() === window)
     }
+
+    @Test
+    func reportsShowHideMinimizeAndRestoreVisibility() {
+        var visibility: [Bool] = []
+        let controller = MainWindowController(
+            rootView: EmptyView(),
+            onVisibilityChange: { visibility.append($0) }
+        )
+        let window = controller.makeWindowIfNeeded()
+
+        controller.show()
+        controller.windowDidMiniaturize(
+            Notification(name: NSWindow.didMiniaturizeNotification, object: window)
+        )
+        controller.windowDidDeminiaturize(
+            Notification(name: NSWindow.didDeminiaturizeNotification, object: window)
+        )
+        _ = controller.windowShouldClose(window)
+
+        #expect(visibility == [true, false, true, false])
+    }
 }

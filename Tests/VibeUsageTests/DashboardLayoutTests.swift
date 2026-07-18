@@ -79,6 +79,62 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func dashboardReportsTheSelectedRemoteRefreshTarget() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shell = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/DashboardShellView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(shell.contains("private var remoteRefreshTarget: RemoteRefreshTarget"))
+        #expect(shell.contains("appState.setActiveRefreshTarget(remoteRefreshTarget)"))
+        #expect(shell.contains("case .settings: .none"))
+    }
+
+    @Test
+    func leaderboardAndAppStateHaveNoIndependentBackgroundSchedulers() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let leaderboard = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/LeaderboardView.swift"),
+            encoding: .utf8
+        )
+        let appState = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Models/AppState.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!leaderboard.contains(".task {"))
+        #expect(!appState.contains("SyncScheduler"))
+        #expect(!appState.contains("startScheduler"))
+    }
+
+    @Test
+    func rangeAndLeaderboardActionsUseCoordinatedRefreshAPIs() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let filterTags = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/FilterTagsView.swift"),
+            encoding: .utf8
+        )
+        let leaderboard = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/LeaderboardView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(filterTags.contains("await appState.selectTimeRange(range)"))
+        #expect(!filterTags.contains("await appState.fetchUsageData()"))
+        #expect(leaderboard.contains("await appState.refreshLeaderboardManually()"))
+    }
+
+    @Test
     func nativeLeaderboardOmitsUnsupportedFiltersAndUsesRealSections() {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

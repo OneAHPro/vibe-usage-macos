@@ -109,6 +109,23 @@ struct DashboardShellView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.subtleSurface)
+        .onAppear {
+            appState.setActiveRefreshTarget(remoteRefreshTarget)
+        }
+        .onChange(of: selectedPage) { _, _ in
+            appState.setActiveRefreshTarget(remoteRefreshTarget)
+        }
+        .onDisappear {
+            appState.setActiveRefreshTarget(.none)
+        }
+    }
+
+    private var remoteRefreshTarget: RemoteRefreshTarget {
+        switch selectedPage {
+        case .usage: .usage
+        case .leaderboard: .leaderboard
+        case .settings: .none
+        }
     }
 
     private var sidebar: some View {

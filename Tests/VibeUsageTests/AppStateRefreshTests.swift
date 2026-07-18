@@ -88,6 +88,33 @@ struct AppStateRefreshTests {
         #expect(harness.state.buckets == originalBuckets)
     }
 
+    @Test
+    func manualUsageRefreshUsesTheCoordinatorCooldown() async {
+        let harness = makeHarness()
+        harness.state.initialize()
+        await harness.state.restoreSession()
+
+        await harness.state.refreshUsageManually()
+        await harness.state.refreshUsageManually()
+        #expect(harness.client.usageCalls == 2)
+
+        harness.clock.now = harness.clock.now.addingTimeInterval(11)
+        await harness.state.refreshUsageManually()
+        #expect(harness.client.usageCalls == 3)
+    }
+
+    @Test
+    func unauthorizedInitialSnapshotDoesNotRestoreConfiguredState() async {
+        let harness = makeHarness()
+        harness.client.usageError = APIClient.APIError.unauthorized
+        harness.state.initialize()
+
+        await harness.state.restoreSession()
+
+        #expect(!harness.state.isConfigured)
+        #expect(harness.state.buckets.isEmpty)
+    }
+
     private func makeHarness() -> RefreshHarness {
         let clock = TestClock(now: Date(timeIntervalSince1970: 1_700_000_000))
         let client = MockNewSystemClient()

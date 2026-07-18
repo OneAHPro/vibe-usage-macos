@@ -65,95 +65,12 @@ private struct LoginPayload: Decodable {
 
 private struct EmptyPayload: Decodable {}
 
-private struct RemoteUsagePage: Decodable, Sendable {
-    let page: Int
-    let pageSize: Int
-    let total: Int
-    let items: [RemoteUsageLog]
-
-    enum CodingKeys: String, CodingKey {
-        case page, total, items
-        case pageSize = "page_size"
-    }
-}
-
-private struct RemoteUsageLog: Decodable, Sendable {
-    let createdAt: Int64
-    let tokenName: String
-    let modelName: String
-    let quota: Int
-    let promptTokens: Int
-    let completionTokens: Int
-    let useTime: Int
-    let group: String
-    let other: String
-
-    enum CodingKeys: String, CodingKey {
-        case quota, group, other
-        case createdAt = "created_at"
-        case tokenName = "token_name"
-        case modelName = "model_name"
-        case promptTokens = "prompt_tokens"
-        case completionTokens = "completion_tokens"
-        case useTime = "use_time"
-    }
-}
-
 private struct RemoteStatus: Decodable, Sendable {
     let quotaPerUnit: Double
 
     enum CodingKeys: String, CodingKey {
         case quotaPerUnit = "quota_per_unit"
     }
-}
-
-private struct RemoteUsageOther: Decodable {
-    let usageSemantic: String?
-    let inputTokensTotal: Int?
-    let cacheTokens: Int?
-    let cachedTokens: Int?
-    let promptCacheHitTokens: Int?
-    let cacheReadTokens: Int?
-    let cacheReadInputTokens: Int?
-    let cacheWriteTokens: Int?
-    let cacheCreationTokens5m: Int?
-    let cacheCreationTokens1h: Int?
-    let cacheCreationTokens: Int?
-    let cachedCreationTokens: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case usageSemantic = "usage_semantic"
-        case inputTokensTotal = "input_tokens_total"
-        case cacheTokens = "cache_tokens"
-        case cachedTokens = "cached_tokens"
-        case promptCacheHitTokens = "prompt_cache_hit_tokens"
-        case cacheReadTokens = "cache_read_tokens"
-        case cacheReadInputTokens = "cache_read_input_tokens"
-        case cacheWriteTokens = "cache_write_tokens"
-        case cacheCreationTokens5m = "cache_creation_tokens_5m"
-        case cacheCreationTokens1h = "cache_creation_tokens_1h"
-        case cacheCreationTokens = "cache_creation_tokens"
-        case cachedCreationTokens = "cached_creation_tokens"
-    }
-}
-
-private struct RemoteUsageAggregateKey: Hashable {
-    let bucketStart: Int64
-    let source: String
-    let model: String
-    let project: String
-}
-
-private struct RemoteUsageAggregate {
-    var inputTokens = 0
-    var outputTokens = 0
-    var cacheCreationInputTokens = 0
-    var cachedInputTokens = 0
-    var quota = 0
-    var durationSeconds = 0
-    var messageCount = 0
-    var firstCreatedAt: Int64
-    var lastCreatedAt: Int64
 }
 
 /// HTTP client for the new system. URLSession owns the HttpOnly session cookie;
@@ -232,58 +149,9 @@ struct APIClient: Sendable {
         }
         request.timeoutInterval = 30
 
-        do {
-            let envelope: APIEnvelope<UsageResponse> = try await send(request: request)
-            guard let usage = envelope.data else { throw APIError.invalidResponse }
-            return usage
-        } catch APIError.httpError(let status) where status == 404 {
-            // Production may briefly lag behind a desktop release. The
-            // existing authenticated log API contains the same remote data,
-            // so aggregate it client-side instead of falling back to any local
-            // AI-tool files or showing a dead 404 screen.
-            return try await fetchUsageFromExistingLogAPI(range: range)
-        } catch APIError.httpError(let status) where status == 400 && range.isAll {
-            // Older servers do not understand `all=true`. Keep the client
-            // usable during a rolling deployment by aggregating the existing
-            // authenticated log endpoint until the desktop endpoint catches up.
-            return try await fetchUsageFromExistingLogAPI(range: range)
-        }
-    }
-
-    private func fetchUsageFromExistingLogAPI(range: UsageQueryRange) async throws -> UsageResponse {
-        let interval = range.dateInterval(now: Date())
-        let quotaPerUnit = await fetchQuotaPerUnit()
-        let firstPage = try await fetchRemoteUsagePage(page: 1, interval: interval)
-        var logs = firstPage.items
-        let pageSize = max(firstPage.pageSize, 1)
-        let cappedTotal = min(max(firstPage.total, logs.count), 10_000)
-        let pageCount = max(Int(ceil(Double(cappedTotal) / Double(pageSize))), 1)
-
-        if pageCount > 1 {
-            let batchSize = 6
-            for start in stride(from: 2, through: pageCount, by: batchSize) {
-                let end = min(start + batchSize - 1, pageCount)
-                let pages = try await withThrowingTaskGroup(of: RemoteUsagePage.self) { group in
-                    for page in start...end {
-                        group.addTask {
-                            try await fetchRemoteUsagePage(page: page, interval: interval)
-                        }
-                    }
-                    var pages: [RemoteUsagePage] = []
-                    for try await page in group {
-                        pages.append(page)
-                    }
-                    return pages.sorted { $0.page < $1.page }
-                }
-                logs.append(contentsOf: pages.flatMap(\.items))
-            }
-        }
-
-        return Self.aggregateRemoteLogs(
-            logs,
-            quotaPerUnit: quotaPerUnit,
-            hostname: URL(string: baseURL)?.host ?? "api.anhepro.com"
-        )
+        let envelope: APIEnvelope<UsageResponse> = try await send(request: request)
+        guard let usage = envelope.data else { throw APIError.invalidResponse }
+        return usage
     }
 
     func fetchQuotaPerUnit() async -> Double {
@@ -299,139 +167,6 @@ struct APIClient: Sendable {
             debugLog("[APIClient] quota_per_unit fallback: \(error.localizedDescription)")
         }
         return 500_000
-    }
-
-    private func fetchRemoteUsagePage(
-        page: Int,
-        interval: DateInterval
-    ) async throws -> RemoteUsagePage {
-        guard var components = URLComponents(string: "\(baseURL)/api/log/self") else {
-            throw APIError.invalidURL
-        }
-        components.queryItems = [
-            URLQueryItem(name: "p", value: String(page)),
-            URLQueryItem(name: "page_size", value: "100"),
-            URLQueryItem(name: "type", value: "2"),
-            URLQueryItem(name: "start_timestamp", value: String(Int64(interval.start.timeIntervalSince1970))),
-            URLQueryItem(name: "end_timestamp", value: String(Int64(interval.end.timeIntervalSince1970))),
-        ]
-        guard let url = components.url else { throw APIError.invalidURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 30
-        if let userID {
-            request.setValue(String(userID), forHTTPHeaderField: "New-Api-User")
-        }
-
-        let envelope: APIEnvelope<RemoteUsagePage> = try await send(request: request)
-        guard let page = envelope.data else { throw APIError.invalidResponse }
-        return page
-    }
-
-    private static func aggregateRemoteLogs(
-        _ logs: [RemoteUsageLog],
-        quotaPerUnit: Double,
-        hostname: String
-    ) -> UsageResponse {
-        var aggregates: [RemoteUsageAggregateKey: RemoteUsageAggregate] = [:]
-        let decoder = JSONDecoder()
-
-        for log in logs {
-            let other = log.other.data(using: .utf8).flatMap {
-                try? decoder.decode(RemoteUsageOther.self, from: $0)
-            }
-            let cacheRead = max(
-                other?.cacheTokens
-                    ?? other?.cachedTokens
-                    ?? other?.promptCacheHitTokens
-                    ?? other?.cacheReadTokens
-                    ?? other?.cacheReadInputTokens
-                    ?? 0,
-                0
-            )
-            let splitCacheCreation = max(other?.cacheCreationTokens5m ?? 0, 0)
-                + max(other?.cacheCreationTokens1h ?? 0, 0)
-            let cacheCreation = max(
-                other?.cacheWriteTokens
-                    ?? (splitCacheCreation > 0 ? splitCacheCreation : nil)
-                    ?? other?.cacheCreationTokens
-                    ?? other?.cachedCreationTokens
-                    ?? 0,
-                0
-            )
-            let promptTokens = max(other?.inputTokensTotal ?? log.promptTokens, 0)
-            let isAnthropic = other?.usageSemantic?.trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased() == "anthropic"
-            let inputTokens = isAnthropic ? promptTokens : max(promptTokens - cacheRead - cacheCreation, 0)
-            let source = log.tokenName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let model = log.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = RemoteUsageAggregateKey(
-                bucketStart: log.createdAt - (log.createdAt % 3_600),
-                source: source.isEmpty ? "GPT API" : source,
-                model: model.isEmpty ? "unknown" : model,
-                project: log.group
-            )
-            var aggregate = aggregates[key] ?? RemoteUsageAggregate(
-                firstCreatedAt: log.createdAt,
-                lastCreatedAt: log.createdAt
-            )
-            aggregate.inputTokens += inputTokens
-            aggregate.outputTokens += max(log.completionTokens, 0)
-            aggregate.cacheCreationInputTokens += cacheCreation
-            aggregate.cachedInputTokens += cacheRead
-            aggregate.quota += max(log.quota, 0)
-            aggregate.durationSeconds += max(log.useTime, 0)
-            aggregate.messageCount += 1
-            aggregate.firstCreatedAt = min(aggregate.firstCreatedAt, log.createdAt)
-            aggregate.lastCreatedAt = max(aggregate.lastCreatedAt, log.createdAt)
-            aggregates[key] = aggregate
-        }
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        let keys = aggregates.keys.sorted {
-            if $0.bucketStart != $1.bucketStart { return $0.bucketStart < $1.bucketStart }
-            if $0.source != $1.source { return $0.source < $1.source }
-            if $0.model != $1.model { return $0.model < $1.model }
-            return $0.project < $1.project
-        }
-        var buckets: [UsageBucket] = []
-        var sessions: [UsageSession] = []
-
-        for key in keys {
-            guard let aggregate = aggregates[key] else { continue }
-            let totalTokens = aggregate.inputTokens
-                + aggregate.outputTokens
-                + aggregate.cacheCreationInputTokens
-                + aggregate.cachedInputTokens
-            buckets.append(UsageBucket(
-                source: key.source,
-                model: key.model,
-                project: key.project,
-                hostname: hostname,
-                bucketStart: formatter.string(from: Date(timeIntervalSince1970: TimeInterval(key.bucketStart))),
-                inputTokens: aggregate.inputTokens,
-                outputTokens: aggregate.outputTokens,
-                cacheCreationInputTokens: aggregate.cacheCreationInputTokens,
-                cachedInputTokens: aggregate.cachedInputTokens,
-                reasoningOutputTokens: 0,
-                totalTokens: totalTokens,
-                estimatedCost: quotaPerUnit > 0 ? Double(aggregate.quota) / quotaPerUnit : 0
-            ))
-            sessions.append(UsageSession(
-                source: key.source,
-                project: key.project,
-                hostname: hostname,
-                firstMessageAt: formatter.string(from: Date(timeIntervalSince1970: TimeInterval(aggregate.firstCreatedAt))),
-                lastMessageAt: formatter.string(from: Date(timeIntervalSince1970: TimeInterval(aggregate.lastCreatedAt))),
-                durationSeconds: aggregate.durationSeconds,
-                activeSeconds: aggregate.durationSeconds,
-                messageCount: aggregate.messageCount,
-                userMessageCount: aggregate.messageCount
-            ))
-        }
-
-        return UsageResponse(buckets: buckets, sessions: sessions, hasAnyData: !buckets.isEmpty)
     }
 
     /// Fetch hour-level buckets for longer dashboard ranges. The usage API
@@ -497,6 +232,9 @@ struct APIClient: Sendable {
         if httpResponse.statusCode == 401 {
             throw APIError.unauthorized
         }
+        if httpResponse.statusCode == 429 {
+            throw APIError.rateLimited(retryAfter: Self.retryAfterDate(from: httpResponse))
+        }
         guard (200..<300).contains(httpResponse.statusCode) else {
             throw APIError.httpError(httpResponse.statusCode)
         }
@@ -508,10 +246,31 @@ struct APIClient: Sendable {
         return envelope
     }
 
+    private static func retryAfterDate(
+        from response: HTTPURLResponse,
+        now: Date = Date()
+    ) -> Date? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else { return nil }
+
+        if let seconds = TimeInterval(raw), seconds >= 0 {
+            return now.addingTimeInterval(seconds)
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss zzz"
+        return formatter.date(from: raw)
+    }
+
     enum APIError: LocalizedError {
         case invalidURL
         case invalidResponse
         case unauthorized
+        case rateLimited(retryAfter: Date?)
         case httpError(Int)
         case server(String)
 
@@ -520,6 +279,7 @@ struct APIClient: Sendable {
             case .invalidURL: "URL 无效"
             case .invalidResponse: "服务器响应异常"
             case .unauthorized: "登录已过期，请重新登录"
+            case .rateLimited: "请求过于频繁，请稍后再试"
             case .httpError(let code): "HTTP 错误 \(code)"
             case .server(let message): message
             }

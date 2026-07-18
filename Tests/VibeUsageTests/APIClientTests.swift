@@ -109,45 +109,46 @@ struct APIClientTests {
     }
 
     @Test
-    func missingDesktopEndpointFallsBackToExistingNewSystemLogs() async throws {
+    func missingDesktopSnapshotDoesNotRequestRawLogs() async throws {
         let session = makeSession { request in
-            switch request.url?.path {
-            case "/api/desktop/usage":
-                return response(
-                    for: request,
-                    body: #"{"error":{"message":"Invalid URL"}}"#,
-                    status: 404
-                )
-            case "/api/status":
-                return response(
-                    for: request,
-                    body: #"{"success":true,"message":"","data":{"quota_per_unit":500000}}"#
-                )
-            case "/api/log/self":
-                #expect(request.value(forHTTPHeaderField: "New-Api-User") == "7")
-                #expect(request.url?.query?.contains("type=2") == true)
-                #expect(request.url?.query?.contains("page_size=100") == true)
-                return response(
-                    for: request,
-                    body: #"{"success":true,"message":"","data":{"page":1,"page_size":100,"total":2,"items":[{"id":1,"user_id":7,"created_at":1784178300,"type":2,"content":"","username":"xuande","token_name":"codex","model_name":"gpt-5.6-sol","quota":500000,"prompt_tokens":100,"completion_tokens":20,"use_time":2,"is_stream":true,"channel":1,"channel_name":"","token_id":1,"group":"pro","ip":"","other":"{\"cache_tokens\":40}"},{"id":2,"user_id":7,"created_at":1784180100,"type":2,"content":"","username":"xuande","token_name":"codex","model_name":"gpt-5.6-sol","quota":250000,"prompt_tokens":80,"completion_tokens":10,"use_time":3,"is_stream":true,"channel":1,"channel_name":"","token_id":1,"group":"pro","ip":"","other":"{\"cache_tokens\":20,\"cache_write_tokens\":10}"}]}}"#
-                )
-            default:
-                Issue.record("Unexpected fallback request: \(request.url?.absoluteString ?? "nil")")
-                return response(for: request, body: "{}", status: 500)
-            }
+            #expect(request.url?.path == "/api/desktop/usage")
+            return response(
+                for: request,
+                body: #"{"error":{"message":"Invalid URL"}}"#,
+                status: 404
+            )
         }
         let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
 
-        let usage = try await client.fetchUsage(range: .days(1))
+        do {
+            _ = try await client.fetchUsage(range: .days(1))
+            Issue.record("Expected the snapshot request to fail")
+        } catch APIClient.APIError.httpError(let status) {
+            #expect(status == 404)
+        }
+    }
 
-        #expect(usage.hasAnyData)
-        #expect(usage.buckets.count == 1)
-        #expect(usage.buckets[0].inputTokens == 110)
-        #expect(usage.buckets[0].cachedInputTokens == 60)
-        #expect(usage.buckets[0].cacheCreationInputTokens == 10)
-        #expect(usage.buckets[0].totalTokens == 210)
-        #expect(usage.buckets[0].estimatedCost == 1.5)
-        #expect(usage.sessions?.first?.messageCount == 2)
+    @Test
+    func rateLimitCarriesRetryAfterDeadline() async throws {
+        let before = Date()
+        let session = makeSession { request in
+            response(
+                for: request,
+                body: "{}",
+                status: 429,
+                headers: ["Retry-After": "90"]
+            )
+        }
+        let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
+
+        do {
+            _ = try await client.fetchLeaderboard()
+            Issue.record("Expected a rate-limit error")
+        } catch APIClient.APIError.rateLimited(let retryAfter) {
+            let deadline = try #require(retryAfter)
+            #expect(deadline.timeIntervalSince(before) >= 89)
+            #expect(deadline.timeIntervalSince(before) <= 91)
+        }
     }
 
     @Test
@@ -180,12 +181,19 @@ struct APIClientTests {
         return URLSession(configuration: configuration)
     }
 
-    private func response(for request: URLRequest, body: String, status: Int = 200) -> (HTTPURLResponse, Data) {
+    private func response(
+        for request: URLRequest,
+        body: String,
+        status: Int = 200,
+        headers: [String: String] = [:]
+    ) -> (HTTPURLResponse, Data) {
+        var fields = headers
+        fields["Content-Type"] = "application/json"
         let http = HTTPURLResponse(
             url: request.url!,
             statusCode: status,
             httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: fields
         )!
         return (http, Data(body.utf8))
     }

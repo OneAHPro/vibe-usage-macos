@@ -242,9 +242,11 @@ struct DashboardShellView: View {
             if appState.isRefreshingData {
                 loadingPill
                     .padding(.top, 80)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(40)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: appState.isRefreshingData)
         .overlayPreferenceValue(FilterButtonAnchorPreferenceKey.self) { anchors in
             GeometryReader { proxy in
                 if let openFilter,
@@ -388,9 +390,6 @@ struct DashboardShellView: View {
             }
         }
         .id(appState.dashboardRenderGeneration)
-        .transaction { transaction in
-            transaction.animation = nil
-        }
     }
 
     private var loadingState: some View {

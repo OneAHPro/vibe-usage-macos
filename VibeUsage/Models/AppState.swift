@@ -486,9 +486,7 @@ final class AppState {
     }
 
     private func presentUsageResponse(_ response: UsageResponse, for range: TimeRange) {
-        var transaction = Transaction()
-        transaction.animation = nil
-        withTransaction(transaction) {
+        withAnimation(.easeInOut(duration: 0.22)) {
             buckets = response.buckets
             sessions = response.sessions ?? []
             hasAnyData = response.hasAnyData

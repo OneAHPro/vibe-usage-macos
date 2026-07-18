@@ -136,6 +136,27 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func timeRangeChangesAnimateDashboardRefreshAndCommittedData() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shell = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/DashboardShellView.swift"),
+            encoding: .utf8
+        )
+        let appState = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Models/AppState.swift"),
+            encoding: .utf8
+        )
+
+        #expect(shell.contains(".animation(.easeInOut(duration: 0.2), value: appState.isRefreshingData)"))
+        #expect(shell.contains(".transition(.opacity.combined(with: .scale(scale: 0.98)))"))
+        #expect(!shell.contains(".id(appState.dashboardRenderGeneration)\n        .transaction"))
+        #expect(appState.contains("withAnimation(.easeInOut(duration: 0.22))"))
+    }
+
+    @Test
     func remoteRefreshHasNoBypassOrFanOutHelpers() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -136,6 +136,27 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func remoteRefreshHasNoBypassOrFanOutHelpers() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appState = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Models/AppState.swift"),
+            encoding: .utf8
+        )
+        let apiClient = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Services/APIClient.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!appState.contains("func fetchUsageData()"))
+        #expect(!appState.contains("func fetchUsageDataIfNeeded()"))
+        #expect(!appState.contains("func fetchLeaderboard()"))
+        #expect(!apiClient.contains("func fetchHourlyBuckets("))
+    }
+
+    @Test
     func nativeLeaderboardOmitsUnsupportedFiltersAndUsesRealSections() {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

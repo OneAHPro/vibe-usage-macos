@@ -104,6 +104,45 @@ struct AppStateRefreshTests {
     }
 
     @Test
+    func initialRateLimitPreventsImmediateManualRetry() async {
+        let harness = makeHarness()
+        harness.client.usageError = APIClient.APIError.rateLimited(retryAfter: nil)
+        harness.state.initialize()
+        await harness.state.restoreSession()
+        #expect(harness.client.usageCalls == 1)
+
+        harness.client.usageError = nil
+        await harness.state.refreshUsageManually()
+        #expect(harness.client.usageCalls == 1)
+
+        harness.clock.now = harness.clock.now.addingTimeInterval(61)
+        await harness.state.refreshUsageManually()
+        #expect(harness.client.usageCalls == 2)
+    }
+
+    @Test
+    func timeRangeSelectionHonorsExistingUsageRateLimit() async {
+        let harness = makeHarness()
+        harness.state.initialize()
+        await harness.state.restoreSession()
+
+        harness.client.usageError = APIClient.APIError.rateLimited(retryAfter: nil)
+        await harness.state.selectTimeRange(.sevenDays)
+        #expect(harness.client.usageCalls == 2)
+        #expect(harness.state.timeRange == .oneDay)
+
+        harness.client.usageError = nil
+        await harness.state.selectTimeRange(.sevenDays)
+        #expect(harness.client.usageCalls == 2)
+        #expect(harness.state.timeRange == .oneDay)
+
+        harness.clock.now = harness.clock.now.addingTimeInterval(61)
+        await harness.state.selectTimeRange(.sevenDays)
+        #expect(harness.client.usageCalls == 3)
+        #expect(harness.state.timeRange == .sevenDays)
+    }
+
+    @Test
     func unauthorizedInitialSnapshotDoesNotRestoreConfiguredState() async {
         let harness = makeHarness()
         harness.client.usageError = APIClient.APIError.unauthorized

@@ -119,6 +119,32 @@ struct VisibleRefreshCoordinatorTests {
     }
 
     @Test
+    func immediateRefreshRecordsAndHonorsRateLimitCooldown() async {
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        var results: [SnapshotRefreshResult] = [.rateLimited(until: nil), .success]
+        var calls = 0
+        let coordinator = makeCoordinator(
+            now: { now },
+            lastSuccess: { _ in nil },
+            refresh: { _ in
+                calls += 1
+                return results.removeFirst()
+            }
+        )
+
+        await coordinator.requestImmediateRefresh(.usage)
+        #expect(calls == 1)
+
+        now = now.addingTimeInterval(59)
+        await coordinator.requestImmediateRefresh(.usage)
+        #expect(calls == 1)
+
+        now = now.addingTimeInterval(2)
+        await coordinator.requestImmediateRefresh(.usage)
+        #expect(calls == 2)
+    }
+
+    @Test
     func overlappingCyclesProduceOnlyOneRequest() async {
         let probe = SuspendedRefreshProbe()
         let coordinator = makeCoordinator(

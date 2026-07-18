@@ -378,10 +378,6 @@ final class AppState {
 
     // MARK: - Data Fetching
 
-    func fetchLeaderboard() async {
-        _ = await refreshLeaderboardSnapshot()
-    }
-
     func refreshLeaderboardSnapshot() async -> SnapshotRefreshResult {
         guard let client = authenticatedClient() else { return .failure }
         guard !isLoadingLeaderboard else { return .failure }
@@ -416,10 +412,6 @@ final class AppState {
         leaderboardData = data
         leaderboardUpdatedAt = updatedAt ?? dependencies.now()
         leaderboardError = nil
-    }
-
-    func fetchUsageData() async {
-        _ = await refreshUsageSnapshot(for: timeRange)
     }
 
     func refreshUsageSnapshot(for range: TimeRange) async -> SnapshotRefreshResult {
@@ -480,13 +472,17 @@ final class AppState {
     func selectTimeRange(_ range: TimeRange) async {
         guard timeRange != range else { return }
         timeRange = range
+        let hasCachedSnapshot = usageCache[range] != nil
         if let cached = usageCache[range] {
             presentUsageResponse(cached.response, for: range)
             if dependencies.now().timeIntervalSince(cached.updatedAt) <= 60 {
                 return
             }
         }
-        _ = await refreshUsageSnapshot(for: range)
+        let didRefresh = await visibleRefreshCoordinator.requestImmediateRefresh(.usage)
+        if !didRefresh, !hasCachedSnapshot {
+            timeRange = loadedTimeRange
+        }
     }
 
     private func presentUsageResponse(_ response: UsageResponse, for range: TimeRange) {
@@ -500,17 +496,6 @@ final class AppState {
             loadedTimeRange = range
             dashboardRenderGeneration &+= 1
         }
-    }
-
-    /// Temporary compatibility entry point until window visibility is wired to
-    /// VisibleRefreshCoordinator.
-    func fetchUsageDataIfNeeded() async {
-        if let cached = usageCache[timeRange],
-           dependencies.now().timeIntervalSince(cached.updatedAt) < 60
-        {
-            return
-        }
-        _ = await refreshUsageSnapshot(for: timeRange)
     }
 
     func setMainWindowVisible(_ visible: Bool) {
@@ -702,7 +687,7 @@ final class AppState {
         requiresTwoFactor = false
         authenticationError = nil
         await loadQuotaPerUnitOnce()
-        _ = await refreshUsageSnapshot(for: timeRange)
+        _ = await visibleRefreshCoordinator.requestImmediateRefresh(.usage)
         guard self.config != nil else { return }
         isConfigured = true
         isCheckingSession = false

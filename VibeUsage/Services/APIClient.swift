@@ -169,40 +169,6 @@ struct APIClient: Sendable {
         return 500_000
     }
 
-    /// Fetch hour-level buckets for longer dashboard ranges. The usage API
-    /// automatically switches multi-day requests to daily aggregation, so we
-    /// request one exact day at a time and keep concurrency bounded.
-    func fetchHourlyBuckets(ranges: [UsageQueryRange], batchSize: Int = 6) async -> [UsageBucket] {
-        guard !ranges.isEmpty else { return [] }
-        var collected: [UsageBucket] = []
-        let safeBatchSize = max(batchSize, 1)
-
-        for start in stride(from: 0, to: ranges.count, by: safeBatchSize) {
-            let end = min(start + safeBatchSize, ranges.count)
-            let batch = Array(ranges[start..<end])
-            let batchBuckets = await withTaskGroup(of: [UsageBucket].self) { group in
-                for range in batch {
-                    group.addTask {
-                        (try? await fetchUsage(range: range).buckets) ?? []
-                    }
-                }
-
-                var result: [UsageBucket] = []
-                for await buckets in group {
-                    result.append(contentsOf: buckets)
-                }
-                return result
-            }
-            collected.append(contentsOf: batchBuckets)
-        }
-
-        var unique: [String: UsageBucket] = [:]
-        for bucket in collected {
-            unique[bucket.id] = bucket
-        }
-        return unique.values.sorted { $0.bucketStart < $1.bucketStart }
-    }
-
     private func send<Payload: Decodable>(
         path: String,
         method: String = "GET",

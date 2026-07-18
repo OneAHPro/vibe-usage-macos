@@ -81,6 +81,13 @@ final class VisibleRefreshCoordinator {
         await perform(target)
     }
 
+    @discardableResult
+    func requestImmediateRefresh(_ target: RemoteRefreshTarget) async -> Bool {
+        guard target != .none else { return false }
+        guard !isCoolingDown(target, at: now()) else { return false }
+        return await perform(target)
+    }
+
     func stop() {
         windowVisible = false
         loopTask?.cancel()
@@ -122,8 +129,9 @@ final class VisibleRefreshCoordinator {
         await perform(target)
     }
 
-    private func perform(_ target: RemoteRefreshTarget) async {
-        guard !inFlight.contains(target) else { return }
+    @discardableResult
+    private func perform(_ target: RemoteRefreshTarget) async -> Bool {
+        guard !inFlight.contains(target) else { return false }
         inFlight.insert(target)
         let result = await refresh(target)
         inFlight.remove(target)
@@ -136,6 +144,7 @@ final class VisibleRefreshCoordinator {
         case .rateLimited(let deadline):
             cooldownUntil[target] = deadline ?? now().addingTimeInterval(60)
         }
+        return true
     }
 
     private func isCoolingDown(_ target: RemoteRefreshTarget, at date: Date) -> Bool {

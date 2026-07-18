@@ -132,6 +132,7 @@ struct DashboardLayoutTests {
         #expect(filterTags.contains("await appState.selectTimeRange(range)"))
         #expect(!filterTags.contains("await appState.fetchUsageData()"))
         #expect(leaderboard.contains("await appState.refreshLeaderboardManually()"))
+        #expect(!leaderboard.contains("await appState.fetchLeaderboard()"))
     }
 
     @Test

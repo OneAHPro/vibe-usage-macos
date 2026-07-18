@@ -212,7 +212,7 @@ struct LeaderboardView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(AppTheme.tertiaryText)
             Button("重新加载") {
-                Task { await appState.fetchLeaderboard() }
+                Task { await appState.refreshLeaderboardManually() }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)

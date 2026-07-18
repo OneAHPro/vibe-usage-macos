@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftUI
 
 /// Sync status for menu bar icon display
@@ -15,7 +16,7 @@ enum ChartMode: String, CaseIterable {
     case activeTime = "\u{6D3B}\u{8DC3}"
 }
 
-enum TimeRange: String, CaseIterable {
+enum TimeRange: String, CaseIterable, Hashable, Sendable {
     /// Local midnight → now. Fixed start, only grows as the day progresses.
     /// Split out from `.oneDay` per vibe-cafe@f5f022b — the rolling-24h
     /// window confused users who read it as "today's spend" but watched the
@@ -86,11 +87,15 @@ struct FilterState: Equatable {
 @Observable
 @MainActor
 final class AppState {
+    private struct UsageSnapshotCacheEntry {
+        let response: UsageResponse
+        let updatedAt: Date
+    }
+
     // MARK: - Sync State
     var syncStatus: SyncStatus = .idle
     var lastSyncTime: Date?
     var lastSyncMessage: String?
-    private var lastFetchTime: Date?
 
     // MARK: - Dashboard Data
     var buckets: [UsageBucket] = []
@@ -248,6 +253,32 @@ final class AppState {
     private var syncScheduler: SyncScheduler?
     private var rateLimitCoordinator: RateLimitCoordinator?
     private var config: VibeUsageConfig?
+    private let dependencies: AppStateDependencies
+    private var usageCache: [TimeRange: UsageSnapshotCacheEntry] = [:]
+    private var quotaPerUnitLoadedForSession = false
+
+    @ObservationIgnored
+    private lazy var visibleRefreshCoordinator = VisibleRefreshCoordinator(
+        now: dependencies.now,
+        lastSuccess: { [weak self] target in
+            self?.lastSuccessfulRefresh(for: target)
+        },
+        refresh: { [weak self] target in
+            guard let self else { return .failure }
+            switch target {
+            case .usage:
+                return await self.refreshUsageSnapshot(for: self.timeRange)
+            case .leaderboard:
+                return await self.refreshLeaderboardSnapshot()
+            case .none:
+                return .failure
+            }
+        }
+    )
+
+    init(dependencies: AppStateDependencies = .live) {
+        self.dependencies = dependencies
+    }
 
     // MARK: - Lifecycle
 
@@ -261,7 +292,7 @@ final class AppState {
         UserDefaults.standard.set(false, forKey: "claudeRateLimitEnabled")
         _ = StatuslineHook.uninstall()
 
-        let loadedConfig = ConfigManager.load()
+        let loadedConfig = dependencies.loadConfig()
         self.config = loadedConfig
         self.isConfigured = loadedConfig?.isRemoteAccountConfigured == true
         self.accountUsername = loadedConfig?.username
@@ -278,10 +309,14 @@ final class AppState {
         defer { isCheckingSession = false }
 
         do {
-            let client = APIClient(baseURL: config.apiUrl ?? AppConfig.defaultApiUrl, userID: userID)
+            let client = dependencies.makeClient(
+                config.apiUrl ?? AppConfig.defaultApiUrl,
+                userID
+            )
             let user = try await client.fetchCurrentUser()
             finishAuthentication(user, apiURL: config.apiUrl ?? AppConfig.defaultApiUrl)
-            await fetchUsageData()
+            await loadQuotaPerUnitOnce()
+            _ = await refreshUsageSnapshot(for: timeRange)
         } catch {
             clearRemoteSession()
         }
@@ -294,14 +329,15 @@ final class AppState {
         defer { isAuthenticating = false }
 
         do {
-            let client = APIClient(baseURL: AppConfig.defaultApiUrl)
+            let client = dependencies.makeClient(AppConfig.defaultApiUrl, nil)
             switch try await client.login(username: username, password: password) {
             case .requiresTwoFactor:
                 accountUsername = username
                 requiresTwoFactor = true
             case .authenticated(let user):
                 finishAuthentication(user, apiURL: AppConfig.defaultApiUrl)
-                await fetchUsageData()
+                await loadQuotaPerUnitOnce()
+                _ = await refreshUsageSnapshot(for: timeRange)
             }
         } catch {
             authenticationError = error.localizedDescription
@@ -315,10 +351,11 @@ final class AppState {
         defer { isAuthenticating = false }
 
         do {
-            let client = APIClient(baseURL: AppConfig.defaultApiUrl)
+            let client = dependencies.makeClient(AppConfig.defaultApiUrl, nil)
             let user = try await client.verifyTwoFactor(code: code)
             finishAuthentication(user, apiURL: AppConfig.defaultApiUrl)
-            await fetchUsageData()
+            await loadQuotaPerUnitOnce()
+            _ = await refreshUsageSnapshot(for: timeRange)
         } catch {
             authenticationError = error.localizedDescription
         }
@@ -331,7 +368,10 @@ final class AppState {
 
     func logout() async {
         if let config, let userID = config.userID {
-            let client = APIClient(baseURL: config.apiUrl ?? AppConfig.defaultApiUrl, userID: userID)
+            let client = dependencies.makeClient(
+                config.apiUrl ?? AppConfig.defaultApiUrl,
+                userID
+            )
             try? await client.logout()
         }
         clearRemoteSession()
@@ -342,12 +382,12 @@ final class AppState {
     func triggerSync() async {
         guard syncStatus != .syncing else { return }
         syncStatus = .syncing
-        await fetchUsageData()
+        _ = await refreshUsageSnapshot(for: timeRange)
         guard isConfigured else { return }
         if case .error = syncStatus { return }
 
         syncStatus = .success
-        lastSyncTime = Date()
+        lastSyncTime = dependencies.now()
         lastSyncMessage = "new 系统数据已更新"
         try? await Task.sleep(for: .seconds(3))
         if syncStatus == .success {
@@ -358,88 +398,117 @@ final class AppState {
     // MARK: - Data Fetching
 
     func fetchLeaderboard() async {
-        guard let config, let userID = config.userID else { return }
-        guard !isLoadingLeaderboard else { return }
+        _ = await refreshLeaderboardSnapshot()
+    }
+
+    func refreshLeaderboardSnapshot() async -> SnapshotRefreshResult {
+        guard let client = authenticatedClient() else { return .failure }
+        guard !isLoadingLeaderboard else { return .failure }
         isLoadingLeaderboard = true
         leaderboardError = nil
         defer { isLoadingLeaderboard = false }
 
         do {
-            let client = APIClient(
-                baseURL: config.apiUrl ?? AppConfig.defaultApiUrl,
-                userID: userID
-            )
             applyLeaderboardData(try await client.fetchLeaderboard())
+            return .success
         } catch {
             if let apiError = error as? APIClient.APIError,
                case .unauthorized = apiError
             {
                 clearRemoteSession()
+            } else if let apiError = error as? APIClient.APIError,
+                      case .rateLimited(let retryAfter) = apiError
+            {
+                leaderboardError = error.localizedDescription
+                return .rateLimited(until: retryAfter)
             } else {
                 leaderboardError = error.localizedDescription
             }
+            return .failure
         }
     }
 
     func applyLeaderboardData(
         _ data: LeaderboardData,
-        updatedAt: Date = Date()
+        updatedAt: Date? = nil
     ) {
         leaderboardData = data
-        leaderboardUpdatedAt = updatedAt
+        leaderboardUpdatedAt = updatedAt ?? dependencies.now()
         leaderboardError = nil
     }
 
     func fetchUsageData() async {
-        guard let config, let userID = config.userID else { return }
-        guard !isLoadingData else { return }
+        _ = await refreshUsageSnapshot(for: timeRange)
+    }
+
+    func refreshUsageSnapshot(for range: TimeRange) async -> SnapshotRefreshResult {
+        guard let client = authenticatedClient() else { return .failure }
+        guard !isLoadingData else { return .failure }
         isLoadingData = true
         defer {
-            lastFetchTime = Date()
             hasLoadedUsageData = true
             isLoadingData = false
         }
         await Task.yield()
 
-        let apiUrl = config.apiUrl ?? AppConfig.defaultApiUrl
-        let client = APIClient(baseURL: apiUrl, userID: userID)
         isLoadingHeatmap = true
-        let requestedTimeRange = timeRange
-        let requestedQueryRange = usageQueryRange(for: requestedTimeRange)
+        let requestedQueryRange = usageQueryRange(for: range)
 
         do {
-            async let usageRequest = client.fetchUsage(range: requestedQueryRange)
-            async let accountRequest = client.fetchCurrentUser()
-            async let quotaRequest = client.fetchQuotaPerUnit()
-
-            let response = try await usageRequest
-            let refreshedUser = try? await accountRequest
-            let refreshedQuotaPerUnit = await quotaRequest
-            applyUsageResponse(response, for: requestedTimeRange)
-            if let refreshedUser {
-                updateAccountMetrics(from: refreshedUser)
-            }
-            if refreshedQuotaPerUnit > 0 {
-                quotaPerUnit = refreshedQuotaPerUnit
-            }
+            let response = try await client.fetchUsage(range: requestedQueryRange)
+            applyUsageResponse(response, for: range)
             syncStatus = syncStatus == .syncing ? .syncing : .idle
-            lastSyncTime = Date()
+            lastSyncTime = dependencies.now()
             lastSyncMessage = "new 系统数据已更新"
             isLoadingHeatmap = false
             authenticationError = nil
+            return .success
         } catch {
             isLoadingHeatmap = false
-            timeRange = loadedTimeRange
+            if usageCache[range] == nil {
+                timeRange = loadedTimeRange
+            }
             if let apiError = error as? APIClient.APIError, case .unauthorized = apiError {
                 clearRemoteSession()
+            } else if let apiError = error as? APIClient.APIError,
+                      case .rateLimited(let retryAfter) = apiError
+            {
+                syncStatus = .error(error.localizedDescription)
+                lastSyncMessage = error.localizedDescription
+                return .rateLimited(until: retryAfter)
             } else {
                 syncStatus = .error(error.localizedDescription)
                 lastSyncMessage = error.localizedDescription
             }
+            return .failure
         }
     }
 
-    func applyUsageResponse(_ response: UsageResponse, for range: TimeRange) {
+    func applyUsageResponse(
+        _ response: UsageResponse,
+        for range: TimeRange,
+        updatedAt: Date? = nil
+    ) {
+        usageCache[range] = UsageSnapshotCacheEntry(
+            response: response,
+            updatedAt: updatedAt ?? dependencies.now()
+        )
+        presentUsageResponse(response, for: range)
+    }
+
+    func selectTimeRange(_ range: TimeRange) async {
+        guard timeRange != range else { return }
+        timeRange = range
+        if let cached = usageCache[range] {
+            presentUsageResponse(cached.response, for: range)
+            if dependencies.now().timeIntervalSince(cached.updatedAt) <= 60 {
+                return
+            }
+        }
+        _ = await refreshUsageSnapshot(for: range)
+    }
+
+    private func presentUsageResponse(_ response: UsageResponse, for range: TimeRange) {
         var transaction = Transaction()
         transaction.animation = nil
         withTransaction(transaction) {
@@ -452,13 +521,35 @@ final class AppState {
         }
     }
 
-    /// Fetch dashboard data unless we already fetched within the last 60s.
-    /// Used by popover open to avoid hammering /api/usage on rapid open/close.
+    /// Temporary compatibility entry point until window visibility is wired to
+    /// VisibleRefreshCoordinator.
     func fetchUsageDataIfNeeded() async {
-        if let last = lastFetchTime, Date().timeIntervalSince(last) < 60 {
+        if let cached = usageCache[timeRange],
+           dependencies.now().timeIntervalSince(cached.updatedAt) < 60
+        {
             return
         }
-        await fetchUsageData()
+        _ = await refreshUsageSnapshot(for: timeRange)
+    }
+
+    func setMainWindowVisible(_ visible: Bool) {
+        visibleRefreshCoordinator.setWindowVisible(visible)
+    }
+
+    func setActiveRefreshTarget(_ target: RemoteRefreshTarget) {
+        visibleRefreshCoordinator.setActiveTarget(target)
+    }
+
+    func refreshUsageManually() async {
+        await visibleRefreshCoordinator.requestManualRefresh(.usage)
+    }
+
+    func refreshLeaderboardManually() async {
+        await visibleRefreshCoordinator.requestManualRefresh(.leaderboard)
+    }
+
+    func stopRemoteRefresh() {
+        visibleRefreshCoordinator.stop()
     }
 
     /// Toggle Codex quota monitoring. Codex is read-only, so disabling just
@@ -581,6 +672,37 @@ final class AppState {
         self.rateLimitCoordinator = coord
     }
 
+    private func authenticatedClient() -> (any NewSystemClient)? {
+        guard let config, let userID = config.userID else { return nil }
+        return dependencies.makeClient(
+            config.apiUrl ?? AppConfig.defaultApiUrl,
+            userID
+        )
+    }
+
+    private func loadQuotaPerUnitOnce() async {
+        guard !quotaPerUnitLoadedForSession,
+              let client = authenticatedClient()
+        else { return }
+
+        quotaPerUnitLoadedForSession = true
+        let value = await client.fetchQuotaPerUnit()
+        if value > 0 {
+            quotaPerUnit = value
+        }
+    }
+
+    private func lastSuccessfulRefresh(for target: RemoteRefreshTarget) -> Date? {
+        switch target {
+        case .none:
+            return nil
+        case .usage:
+            return usageCache[timeRange]?.updatedAt
+        case .leaderboard:
+            return leaderboardUpdatedAt
+        }
+    }
+
     private func startScheduler() {
         syncScheduler?.stop()
         syncScheduler = SyncScheduler(interval: 1800) { [weak self] in
@@ -600,7 +722,7 @@ final class AppState {
             userID: user.id,
             username: user.username
         )
-        ConfigManager.save(config)
+        dependencies.saveConfig(config)
         self.config = config
         accountUsername = user.displayName?.isEmpty == false ? user.displayName : user.username
         updateAccountMetrics(from: user)
@@ -621,7 +743,7 @@ final class AppState {
 
         syncScheduler?.stop()
         syncScheduler = nil
-        ConfigManager.clear()
+        dependencies.clearConfig()
         config = nil
         isConfigured = false
         isCheckingSession = false
@@ -631,6 +753,7 @@ final class AppState {
         accountUsedQuota = 0
         accountRequestCount = 0
         quotaPerUnit = 500_000
+        quotaPerUnitLoadedForSession = false
         authenticationError = nil
         buckets = []
         heatmapBuckets = []
@@ -645,6 +768,8 @@ final class AppState {
         leaderboardUpdatedAt = nil
         leaderboardError = nil
         isLoadingLeaderboard = false
+        usageCache.removeAll()
+        visibleRefreshCoordinator.stop()
         syncStatus = .idle
     }
 

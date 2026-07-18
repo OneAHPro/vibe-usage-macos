@@ -94,6 +94,9 @@ struct DashboardDataTests {
         #expect(data.recentBuckets.map(\.bucketStart) == data.recentBuckets.map(\.bucketStart).sorted(by: >))
         #expect(data.recentBuckets.first?.inputTokens == 54)
         #expect(data.recentBuckets.last?.inputTokens == 5)
+        #expect(data.recentRows.count == 50)
+        #expect(data.recentRows.first?.inputTokens == "54")
+        #expect(data.recentRows.first?.estimatedCost == "$1.25")
     }
 
     @Test

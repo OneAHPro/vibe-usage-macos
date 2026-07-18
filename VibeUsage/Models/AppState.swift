@@ -92,6 +92,18 @@ final class AppState {
         let updatedAt: Date
     }
 
+    private struct DashboardDerivedDataKey: Equatable {
+        let generation: Int
+        let range: TimeRange
+        let filters: FilterState
+        let cutoff: Date?
+    }
+
+    private struct ActivityHeatmapCacheKey: Equatable {
+        let dashboard: DashboardDerivedDataKey
+        let metric: HeatmapMetric
+    }
+
     // MARK: - Sync State
     var syncStatus: SyncStatus = .idle
     var lastSyncTime: Date?
@@ -170,26 +182,37 @@ final class AppState {
         return max(days + 1, 1)
     }
 
-    var dashboardData: DashboardData {
-        DashboardData(
-            buckets: buckets,
-            sessions: sessions,
-            cutoff: presentedTimeRange.startCutoff,
-            filters: filters
+    private var dashboardDerivedDataKey: DashboardDerivedDataKey {
+        DashboardDerivedDataKey(
+            generation: dashboardRenderGeneration,
+            range: presentedTimeRange,
+            filters: filters,
+            cutoff: presentedTimeRange.startCutoff
         )
+    }
+
+    var dashboardData: DashboardData {
+        let key = dashboardDerivedDataKey
+        return dashboardDataMemoizer.value(for: key) {
+            DashboardData(
+                buckets: buckets,
+                sessions: sessions,
+                cutoff: key.cutoff,
+                filters: key.filters
+            )
+        }
     }
 
     var filteredSessions: [UsageSession] {
         dashboardData.sessions
     }
 
-    var filteredHeatmapBuckets: [UsageBucket] {
-        DashboardData(
-            buckets: heatmapBuckets,
-            sessions: [],
-            cutoff: presentedTimeRange.startCutoff,
-            filters: filters
-        ).buckets
+    func activityHeatmap(for metric: HeatmapMetric) -> ActivityHeatmap {
+        let dashboardKey = dashboardDerivedDataKey
+        let key = ActivityHeatmapCacheKey(dashboard: dashboardKey, metric: metric)
+        return activityHeatmapMemoizer.value(for: key) {
+            ActivityHeatmap(buckets: dashboardData.buckets, metric: metric)
+        }
     }
 
     // MARK: - Config
@@ -255,6 +278,12 @@ final class AppState {
     private let dependencies: AppStateDependencies
     private var usageCache: [TimeRange: UsageSnapshotCacheEntry] = [:]
     private var quotaPerUnitLoadedForSession = false
+
+    @ObservationIgnored
+    private let dashboardDataMemoizer = SingleEntryMemoizer<DashboardDerivedDataKey, DashboardData>()
+
+    @ObservationIgnored
+    private let activityHeatmapMemoizer = SingleEntryMemoizer<ActivityHeatmapCacheKey, ActivityHeatmap>()
 
     @ObservationIgnored
     private lazy var visibleRefreshCoordinator = VisibleRefreshCoordinator(
@@ -725,6 +754,8 @@ final class AppState {
         leaderboardError = nil
         isLoadingLeaderboard = false
         usageCache.removeAll()
+        dashboardDataMemoizer.removeAll()
+        activityHeatmapMemoizer.removeAll()
         visibleRefreshCoordinator.stop()
         syncStatus = .idle
     }

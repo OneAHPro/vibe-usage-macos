@@ -4,7 +4,7 @@ struct UsageRecordsView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        let rows = appState.dashboardData.recentBuckets
+        let rows = appState.dashboardData.recentRows
         let tableHeight: CGFloat = rows.isEmpty ? 118 : CGFloat(rows.count + 1) * 38
 
         VStack(alignment: .leading, spacing: 10) {
@@ -23,7 +23,7 @@ struct UsageRecordsView: View {
                 let columnWidths = DashboardLayout.recordColumnWidths(for: tableWidth)
 
                 ScrollView(.horizontal, showsIndicators: true) {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         headerRow(widths: columnWidths)
                         if rows.isEmpty {
                             Text("暂无详细记录")
@@ -31,8 +31,8 @@ struct UsageRecordsView: View {
                                 .foregroundStyle(AppTheme.tertiaryText)
                                 .frame(width: tableWidth, height: 80)
                         } else {
-                            ForEach(rows) { bucket in
-                                recordRow(bucket, widths: columnWidths)
+                            ForEach(rows) { row in
+                                recordRow(row, widths: columnWidths)
                             }
                         }
                     }
@@ -68,22 +68,22 @@ struct UsageRecordsView: View {
         .overlay(alignment: .bottom) { Divider().background(AppTheme.separator) }
     }
 
-    private func recordRow(_ bucket: UsageBucket, widths: [CGFloat]) -> some View {
+    private func recordRow(_ row: UsageRecordRow, widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
             valueCell(
-                displayDate(bucket.bucketStart),
+                row.date,
                 width: widths[0],
                 alignment: .leading,
                 horizontalPadding: DashboardLayout.recordEdgeInset
             )
-            valueCell(displayValue(bucket.hostname), width: widths[1], alignment: .leading)
-            valueCell(displayValue(bucket.source), width: widths[2], alignment: .leading, badge: true)
-            valueCell(displayValue(bucket.model), width: widths[3], alignment: .leading)
-            valueCell(Formatters.formatNumber(bucket.inputTokens), width: widths[4], alignment: .trailing)
-            valueCell(Formatters.formatNumber(bucket.outputTokens + bucket.reasoningOutputTokens), width: widths[5], alignment: .trailing, emphasized: true)
-            valueCell(Formatters.formatNumber(bucket.cachedInputTokens), width: widths[6], alignment: .trailing)
+            valueCell(row.hostname, width: widths[1], alignment: .leading)
+            valueCell(row.source, width: widths[2], alignment: .leading, badge: true)
+            valueCell(row.model, width: widths[3], alignment: .leading)
+            valueCell(row.inputTokens, width: widths[4], alignment: .trailing)
+            valueCell(row.outputTokens, width: widths[5], alignment: .trailing, emphasized: true)
+            valueCell(row.cachedTokens, width: widths[6], alignment: .trailing)
             valueCell(
-                Formatters.formatCost(bucket.estimatedCost ?? 0),
+                row.estimatedCost,
                 width: widths[7],
                 alignment: .trailing,
                 cost: true,
@@ -129,11 +129,4 @@ struct UsageRecordsView: View {
             .frame(width: width, alignment: alignment)
     }
 
-    private func displayDate(_ iso: String) -> String {
-        Formatters.formatDateTime(iso)
-    }
-
-    private func displayValue(_ value: String) -> String {
-        value.isEmpty ? "—" : value
-    }
 }

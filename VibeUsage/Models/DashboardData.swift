@@ -46,11 +46,40 @@ struct SecondaryDashboardMetrics: Equatable {
     }
 }
 
+struct UsageRecordRow: Identifiable, Equatable {
+    let id: String
+    let date: String
+    let hostname: String
+    let source: String
+    let model: String
+    let inputTokens: String
+    let outputTokens: String
+    let cachedTokens: String
+    let estimatedCost: String
+
+    init(bucket: UsageBucket) {
+        id = bucket.id
+        date = Formatters.formatDateTime(bucket.bucketStart)
+        hostname = Self.displayValue(bucket.hostname)
+        source = Self.displayValue(bucket.source)
+        model = Self.displayValue(bucket.model)
+        inputTokens = Formatters.formatNumber(bucket.inputTokens)
+        outputTokens = Formatters.formatNumber(bucket.outputTokens + bucket.reasoningOutputTokens)
+        cachedTokens = Formatters.formatNumber(bucket.cachedInputTokens)
+        estimatedCost = Formatters.formatCost(bucket.estimatedCost ?? 0)
+    }
+
+    private static func displayValue(_ value: String) -> String {
+        value.isEmpty ? "—" : value
+    }
+}
+
 struct DashboardData {
     let buckets: [UsageBucket]
     let sessions: [UsageSession]
     let metrics: DashboardMetrics
     let recentBuckets: [UsageBucket]
+    let recentRows: [UsageRecordRow]
 
     init(
         buckets: [UsageBucket],
@@ -77,7 +106,9 @@ struct DashboardData {
 
         self.buckets = filteredBuckets
         self.sessions = filteredSessions
-        self.recentBuckets = Array(filteredBuckets.sorted { $0.bucketStart > $1.bucketStart }.prefix(50))
+        let recentBuckets = Array(filteredBuckets.sorted { $0.bucketStart > $1.bucketStart }.prefix(50))
+        self.recentBuckets = recentBuckets
+        self.recentRows = recentBuckets.map(UsageRecordRow.init)
 
         let projects = Set(
             filteredBuckets.map(\.project).filter { !$0.isEmpty }
@@ -99,7 +130,7 @@ struct DashboardData {
     }
 }
 
-enum HeatmapMetric: String, CaseIterable {
+enum HeatmapMetric: String, CaseIterable, Equatable {
     case token
     case cost
 

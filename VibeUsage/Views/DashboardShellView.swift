@@ -217,7 +217,7 @@ struct DashboardShellView: View {
     private var usagePage: some View {
         ZStack(alignment: .top) {
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: DashboardLayout.contentSpacing) {
+                LazyVStack(alignment: .leading, spacing: DashboardLayout.contentSpacing) {
                     statusBanner
 
                     if appState.isInitialDataLoad || (!appState.hasLoadedUsageData && appState.buckets.isEmpty) {
@@ -375,19 +375,12 @@ struct DashboardShellView: View {
     }
 
     private var analyticsSection: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: DashboardLayout.contentSpacing) {
-                BarChartView()
-                    .frame(minWidth: 430)
-                ActivityHeatmapView()
-                    .frame(minWidth: 430)
-            }
-            .frame(minWidth: 900)
-
-            VStack(spacing: DashboardLayout.contentSpacing) {
-                BarChartView()
-                ActivityHeatmapView()
-            }
+        DashboardPairLayout(
+            spacing: DashboardLayout.contentSpacing,
+            minimumHorizontalWidth: 900
+        ) {
+            BarChartView()
+            ActivityHeatmapView()
         }
         .id(appState.dashboardRenderGeneration)
     }

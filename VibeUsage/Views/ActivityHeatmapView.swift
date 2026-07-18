@@ -10,7 +10,7 @@ struct ActivityHeatmapView: View {
     ]
 
     var body: some View {
-        let heatmap = ActivityHeatmap(buckets: appState.filteredHeatmapBuckets, metric: metric)
+        let heatmap = appState.activityHeatmap(for: metric)
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 6) {
                 Image(systemName: "calendar")

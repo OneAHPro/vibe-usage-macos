@@ -1,5 +1,59 @@
-import SwiftUI
+import AppKit
 import ServiceManagement
+import SwiftUI
+
+private final class SettingsScrollIndicatorHiderView: NSView {
+    private weak var targetScrollView: NSScrollView?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hideIndicatorsSoon()
+    }
+
+    override func layout() {
+        super.layout()
+        hideVerticalIndicators()
+    }
+
+    func hideIndicatorsSoon() {
+        hideVerticalIndicators()
+        DispatchQueue.main.async { [weak self] in
+            self?.hideVerticalIndicators()
+        }
+    }
+
+    private func hideVerticalIndicators() {
+        if targetScrollView == nil, let contentView = window?.contentView {
+            targetScrollView = firstScrollView(in: contentView)
+        }
+        guard let scrollView = targetScrollView else { return }
+        scrollView.hasVerticalScroller = false
+        scrollView.verticalScroller?.isHidden = true
+        scrollView.autohidesScrollers = true
+    }
+
+    private func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
+        for subview in view.subviews {
+            if let scrollView = firstScrollView(in: subview) {
+                return scrollView
+            }
+        }
+        return nil
+    }
+}
+
+private struct SettingsScrollIndicatorHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> SettingsScrollIndicatorHiderView {
+        SettingsScrollIndicatorHiderView()
+    }
+
+    func updateNSView(_ nsView: SettingsScrollIndicatorHiderView, context: Context) {
+        nsView.hideIndicatorsSoon()
+    }
+}
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
@@ -110,6 +164,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .scrollIndicators(.hidden)
+        .background(SettingsScrollIndicatorHider())
         .background(AppTheme.subtleSurface)
         .frame(width: embedded ? nil : 420, height: embedded ? nil : 460)
         .frame(maxWidth: embedded ? 760 : nil, maxHeight: embedded ? .infinity : nil)

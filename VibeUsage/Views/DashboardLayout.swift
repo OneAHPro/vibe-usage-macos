@@ -199,3 +199,82 @@ struct DashboardMetricLayout: Layout {
         }
     }
 }
+
+struct DashboardPairLayout: Layout {
+    var spacing: CGFloat
+    var minimumHorizontalWidth: CGFloat
+
+    struct Cache {
+        var width: CGFloat = -1
+        var isHorizontal = false
+        var sizes: [CGSize] = []
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache()
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) -> CGSize {
+        let width = max(proposal.width ?? minimumHorizontalWidth, 0)
+        updateMeasurements(width: width, subviews: subviews, cache: &cache)
+        let height: CGFloat
+        if cache.isHorizontal {
+            height = cache.sizes.map(\.height).max() ?? 0
+        } else {
+            height = cache.sizes.map(\.height).reduce(0, +)
+                + spacing * CGFloat(max(cache.sizes.count - 1, 0))
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) {
+        updateMeasurements(width: bounds.width, subviews: subviews, cache: &cache)
+
+        if cache.isHorizontal {
+            let itemWidth = max((bounds.width - spacing) / 2, 0)
+            for index in subviews.indices {
+                subviews[index].place(
+                    at: CGPoint(
+                        x: bounds.minX + CGFloat(index) * (itemWidth + spacing),
+                        y: bounds.minY
+                    ),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(width: itemWidth, height: cache.sizes[index].height)
+                )
+            }
+        } else {
+            var y = bounds.minY
+            for index in subviews.indices {
+                subviews[index].place(
+                    at: CGPoint(x: bounds.minX, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(width: bounds.width, height: cache.sizes[index].height)
+                )
+                y += cache.sizes[index].height + spacing
+            }
+        }
+    }
+
+    private func updateMeasurements(
+        width: CGFloat,
+        subviews: Subviews,
+        cache: inout Cache
+    ) {
+        guard cache.width != width || cache.sizes.count != subviews.count else { return }
+        cache.width = width
+        cache.isHorizontal = width >= minimumHorizontalWidth
+        let childWidth = cache.isHorizontal ? max((width - spacing) / 2, 0) : width
+        cache.sizes = subviews.map {
+            $0.sizeThatFits(ProposedViewSize(width: childWidth, height: nil))
+        }
+    }
+}

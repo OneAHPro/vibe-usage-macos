@@ -424,6 +424,9 @@ struct DashboardLayoutTests {
         )
 
         #expect(settingsSource.contains(".scrollIndicators(.hidden)"))
+        #expect(settingsSource.contains(".background(SettingsScrollIndicatorHider())"))
+        #expect(settingsSource.contains("scrollView.hasVerticalScroller = false"))
+        #expect(settingsSource.contains("scrollView.verticalScroller?.isHidden = true"))
     }
 
     @Test

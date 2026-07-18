@@ -59,13 +59,10 @@ struct BarChartView: View {
                 return calendar.date(byAdding: .hour, value: -23, to: currentHour) ?? currentHour
             }()
             var result: [BarData] = []
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
 
             var hour = start
             while hour <= currentHour {
-                let iso = isoFormatter.string(from: hour)
-                let key = String(iso.prefix(13))
+                let key = ISO8601Parser.utcHourKey(from: hour)
                 result.append(buckets[key] ?? BarData(id: key))
                 guard let next = calendar.date(byAdding: .hour, value: 1, to: hour) else { break }
                 hour = next
@@ -81,9 +78,7 @@ struct BarChartView: View {
             for i in stride(from: numDays - 1, through: 0, by: -1) {
                 let endDay = today
                 if let date = calendar.date(byAdding: .day, value: -i, to: endDay) {
-                    let formatter = DateFormatter()
-                    formatter.dateFormat = "yyyy-MM-dd"
-                    let key = formatter.string(from: date)
+                    let key = Formatters.dayKey(from: date, calendar: calendar)
                     result.append(buckets[key] ?? BarData(id: key))
                 }
             }
@@ -91,20 +86,7 @@ struct BarChartView: View {
         }
     }
 
-    private var maxTotal: Int {
-        max(chartData.map(\.total).max() ?? 0, 1)
-    }
-
-    private var maxCost: Double {
-        max(chartData.map(\.cost).max() ?? 0, 0.001)
-    }
-
-    private var maxActiveMinutes: Double {
-        max(chartData.map(\.activeMinutes).max() ?? 0, 0.1)
-    }
-
-    private var labelInterval: Int {
-        let count = chartData.count
+    private func labelInterval(for count: Int) -> Int {
         if isHourly {
             if count <= 12 { return 3 }
             if count <= 18 { return 4 }
@@ -120,6 +102,10 @@ struct BarChartView: View {
 
     var body: some View {
         @Bindable var state = appState
+        let data = chartData
+        let maximumTotal = max(data.map(\.total).max() ?? 0, 1)
+        let maximumCost = max(data.map(\.cost).max() ?? 0, 0.001)
+        let maximumActiveMinutes = max(data.map(\.activeMinutes).max() ?? 0, 0.1)
 
         VStack(spacing: 0) {
             // Header
@@ -160,13 +146,13 @@ struct BarChartView: View {
             // plus the single hover region inside ChartContent, keeps the
             // popover ScrollView smooth when the cursor passes over the chart.
             ChartContent(
-                data: chartData,
+                data: data,
                 chartMode: state.chartMode,
                 isHourly: isHourly,
-                maxTotal: maxTotal,
-                maxCost: maxCost,
-                maxActiveMinutes: maxActiveMinutes,
-                labelInterval: labelInterval
+                maxTotal: maximumTotal,
+                maxCost: maximumCost,
+                maxActiveMinutes: maximumActiveMinutes,
+                labelInterval: labelInterval(for: data.count)
             )
         }
         .padding(16)

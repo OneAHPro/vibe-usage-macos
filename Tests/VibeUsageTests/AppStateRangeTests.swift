@@ -53,7 +53,8 @@ struct AppStateRangeTests {
             reasoningOutputTokens: 0,
             totalTokens: 60,
             estimatedCost: 0.01,
-            firstResponseTimeMs: 2_400
+            firstResponseTimeMs: 2_400,
+            reasoningEffort: "High"
         )
         let state = AppState()
 
@@ -68,6 +69,7 @@ struct AppStateRangeTests {
         )
 
         #expect(state.recentRequests == [request])
+        #expect(state.dashboardData.recentRows.first?.reasoningEffort == "High")
         #expect(state.dashboardData.recentRows.first?.firstResponseTime == "2.4 s")
     }
 

@@ -97,6 +97,7 @@ struct UsageRequestRecord: Codable, Identifiable, Equatable {
     let totalTokens: Int
     let estimatedCost: Double?
     let firstResponseTimeMs: Double?
+    let reasoningEffort: String?
 
     var date: Date? {
         ISO8601Parser.date(from: createdAt)

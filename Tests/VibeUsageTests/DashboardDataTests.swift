@@ -119,6 +119,7 @@ struct DashboardDataTests {
         #expect(data.recentRows.map(\.firstResponseTime) == ["10.0 s", "9.9 s", "3.0 s", "2.9 s"])
         #expect(data.recentRows.map(\.firstResponseTier) == [.critical, .slow, .slow, .fast])
         #expect(data.recentRows.allSatisfy { $0.model == "gpt-test" })
+        #expect(data.recentRows.allSatisfy { $0.reasoningEffort == "—" })
         #expect(data.recentRows.first?.outputTokens == "30")
         #expect(data.recentRows.first?.cachedTokens == "40")
         #expect(data.recentRows.first?.estimatedCost == "$0.02")
@@ -221,6 +222,18 @@ struct DashboardDataTests {
             #expect(row.firstResponseTime == "—")
             #expect(row.firstResponseTier == .unavailable)
         }
+    }
+
+    @Test
+    func requestRecordDisplaysReasoningEffortWithoutGuessingFromTokens() {
+        let row = UsageRecordRow(record: request(
+            id: 1,
+            createdAt: "2026-07-18T10:00:00Z",
+            firstResponseTimeMs: 500,
+            reasoningEffort: "XHigh"
+        ))
+
+        #expect(row.reasoningEffort == "XHigh")
     }
 
     @Test
@@ -623,7 +636,8 @@ struct DashboardDataTests {
         firstResponseTimeMs: Double?,
         source: String = "new-api",
         model: String = "gpt-test",
-        project: String = "radar"
+        project: String = "radar",
+        reasoningEffort: String? = nil
     ) -> UsageRequestRecord {
         UsageRequestRecord(
             id: id,
@@ -637,7 +651,8 @@ struct DashboardDataTests {
             reasoningOutputTokens: 0,
             totalTokens: 90,
             estimatedCost: 0.02,
-            firstResponseTimeMs: firstResponseTimeMs
+            firstResponseTimeMs: firstResponseTimeMs,
+            reasoningEffort: reasoningEffort
         )
     }
 }

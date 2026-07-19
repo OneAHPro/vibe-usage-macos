@@ -57,6 +57,7 @@ struct UsageRecordRow: Identifiable, Equatable {
     let id: String
     let date: String
     let model: String
+    let reasoningEffort: String
     let firstResponseTime: String
     let firstResponseTier: FirstResponseTimeTier
     let inputTokens: String
@@ -68,6 +69,7 @@ struct UsageRecordRow: Identifiable, Equatable {
         id = bucket.id
         date = Formatters.formatDateTime(bucket.bucketStart)
         model = Self.displayValue(bucket.model)
+        reasoningEffort = "—"
         firstResponseTime = "—"
         firstResponseTier = .unavailable
         inputTokens = Formatters.formatNumber(bucket.inputTokens)
@@ -80,6 +82,7 @@ struct UsageRecordRow: Identifiable, Equatable {
         id = String(record.id)
         date = Formatters.formatDateTime(record.createdAt)
         model = Self.displayValue(record.model)
+        reasoningEffort = Self.displayValue(record.reasoningEffort ?? "")
         (firstResponseTime, firstResponseTier) = Self.formatFirstResponseTime(
             milliseconds: record.firstResponseTimeMs
         )

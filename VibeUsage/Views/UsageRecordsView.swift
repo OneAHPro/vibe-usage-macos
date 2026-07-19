@@ -20,7 +20,8 @@ struct UsageRecordsView: View {
 
             GeometryReader { geometry in
                 let tableWidth = max(geometry.size.width, DashboardLayout.recordMinimumTableWidth)
-                let columnWidths = DashboardLayout.recordColumnWidths(for: tableWidth)
+                let contentWidth = tableWidth - DashboardLayout.recordTableHorizontalInset * 2
+                let columnWidths = DashboardLayout.recordColumnWidths(for: contentWidth)
 
                 ScrollView(.horizontal, showsIndicators: true) {
                     LazyVStack(spacing: 0) {
@@ -54,14 +55,16 @@ struct UsageRecordsView: View {
 
     private func headerRow(widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
-            headerCell("日期", width: widths[0], alignment: .leading, horizontalPadding: DashboardLayout.recordEdgeInset)
+            headerCell("日期", width: widths[0], alignment: .leading)
             headerCell("模型", width: widths[1], alignment: .leading)
-            headerCell("首字", width: widths[2], alignment: .center)
-            headerCell("输入 TOKEN", width: widths[3], alignment: .trailing)
-            headerCell("输出 TOKEN", width: widths[4], alignment: .trailing)
-            headerCell("缓存 TOKEN", width: widths[5], alignment: .trailing)
-            headerCell("预估费用", width: widths[6], alignment: .trailing, horizontalPadding: DashboardLayout.recordEdgeInset)
+            headerCell("推理强度", width: widths[2], alignment: .leading)
+            headerCell("首字", width: widths[3], alignment: .center)
+            headerCell("输入 TOKEN", width: widths[4], alignment: .trailing)
+            headerCell("输出 TOKEN", width: widths[5], alignment: .trailing)
+            headerCell("缓存 TOKEN", width: widths[6], alignment: .trailing)
+            headerCell("预估费用", width: widths[7], alignment: .trailing)
         }
+        .padding(.horizontal, DashboardLayout.recordTableHorizontalInset)
         .frame(height: 38)
         .background(AppTheme.subtleSurface)
         .overlay(alignment: .bottom) { Divider().background(AppTheme.separator) }
@@ -72,22 +75,22 @@ struct UsageRecordsView: View {
             valueCell(
                 row.date,
                 width: widths[0],
-                alignment: .leading,
-                horizontalPadding: DashboardLayout.recordEdgeInset
+                alignment: .leading
             )
             valueCell(row.model, width: widths[1], alignment: .leading)
-            firstResponseBadge(row, width: widths[2])
-            valueCell(row.inputTokens, width: widths[3], alignment: .trailing)
-            valueCell(row.outputTokens, width: widths[4], alignment: .trailing, emphasized: true)
-            valueCell(row.cachedTokens, width: widths[5], alignment: .trailing)
+            valueCell(row.reasoningEffort, width: widths[2], alignment: .leading)
+            firstResponseBadge(row, width: widths[3])
+            valueCell(row.inputTokens, width: widths[4], alignment: .trailing)
+            valueCell(row.outputTokens, width: widths[5], alignment: .trailing, emphasized: true)
+            valueCell(row.cachedTokens, width: widths[6], alignment: .trailing)
             valueCell(
                 row.estimatedCost,
-                width: widths[6],
+                width: widths[7],
                 alignment: .trailing,
-                cost: true,
-                horizontalPadding: DashboardLayout.recordEdgeInset
+                cost: true
             )
         }
+        .padding(.horizontal, DashboardLayout.recordTableHorizontalInset)
         .frame(height: 38)
         .background(AppTheme.surface)
         .overlay(alignment: .bottom) { Divider().background(AppTheme.separator) }

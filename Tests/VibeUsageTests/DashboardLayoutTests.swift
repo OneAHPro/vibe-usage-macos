@@ -583,21 +583,23 @@ struct DashboardLayoutTests {
     }
 
     @Test
-    func detailedRecordsUseSevenRequestColumns() throws {
+    func detailedRecordsUseEightRequestColumns() throws {
         #expect(DashboardLayout.recordColumnTitles == [
-            "日期", "模型", "首字", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
+            "日期", "模型", "推理强度", "首字", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
         ])
-        #expect(DashboardLayout.recordMinimumTableWidth == 820)
-        #expect(DashboardLayout.recordEdgeInset == 16)
+        #expect(DashboardLayout.recordMinimumTableWidth == 860)
+        #expect(DashboardLayout.recordTableHorizontalInset == 20)
 
         let compactWidths = DashboardLayout.recordColumnWidths(for: 760)
-        #expect(compactWidths.count == 7)
+        #expect(compactWidths.count == 8)
         #expect(abs(compactWidths.reduce(0, +) - 820) < 0.001)
 
-        let wideWidths = DashboardLayout.recordColumnWidths(for: 1_200)
-        #expect(abs(wideWidths.reduce(0, +) - 1_200) < 0.001)
+        let wideContentWidth = 1_200 - DashboardLayout.recordTableHorizontalInset * 2
+        let wideWidths = DashboardLayout.recordColumnWidths(for: wideContentWidth)
+        #expect(abs(wideWidths.reduce(0, +) - wideContentWidth) < 0.001)
         #expect(wideWidths[0] > compactWidths[0])
         #expect(wideWidths.last! > compactWidths.last!)
+        #expect(wideWidths[1] + wideWidths[2] < 280)
 
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -609,7 +611,19 @@ struct DashboardLayoutTests {
         )
         #expect(!view.contains("终端"))
         #expect(!view.contains("工具"))
+        #expect(view.contains("推理强度"))
         #expect(view.contains("首字"))
+        #expect(view.contains(
+            "headerCell(\"推理强度\", width: widths[2], alignment: .leading)"
+        ))
+        #expect(view.contains(
+            "valueCell(row.reasoningEffort, width: widths[2], alignment: .leading)"
+        ))
+        #expect(
+            view.components(
+                separatedBy: ".padding(.horizontal, DashboardLayout.recordTableHorizontalInset)"
+            ).count == 3
+        )
         let firstResponseCell = view.components(separatedBy: "private func firstResponseBadge")[1]
             .components(separatedBy: "private func firstResponseForeground")[0]
         #expect(firstResponseCell.contains(".foregroundStyle(firstResponseForeground"))

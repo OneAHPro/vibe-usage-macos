@@ -24,12 +24,13 @@ enum DashboardLayout {
     static let heatmapColumnSpacing: CGFloat = 4
     static let heatmapRowSpacing: CGFloat = 7
     static let recordColumnTitles = [
-        "日期", "模型", "首字", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
+        "日期", "模型", "推理强度", "首字", "输入 TOKEN", "输出 TOKEN", "缓存 TOKEN", "预估费用",
     ]
-    static let recordMinimumTableWidth: CGFloat = 820
-    static let recordEdgeInset: CGFloat = 16
-    private static let recordBaseColumnWidths: [CGFloat] = [135, 155, 85, 105, 110, 110, 120]
-    private static let recordExtraWidthWeights: [CGFloat] = [0.18, 0.26, 0.08, 0.10, 0.12, 0.12, 0.14]
+    static let recordTableHorizontalInset: CGFloat = 20
+    static let recordMinimumTableWidth: CGFloat = 860
+    private static let recordMinimumContentWidth: CGFloat = 820
+    private static let recordBaseColumnWidths: [CGFloat] = [135, 120, 85, 70, 100, 105, 105, 100]
+    private static let recordExtraWidthWeights: [CGFloat] = [0.22, 0.04, 0.04, 0.07, 0.15, 0.16, 0.16, 0.16]
 
     static func summaryColumnCount(for width: CGFloat) -> Int {
         width >= 900 ? 5 : 2
@@ -200,8 +201,8 @@ enum DashboardLayout {
     }
 
     static func recordColumnWidths(for availableWidth: CGFloat) -> [CGFloat] {
-        let tableWidth = max(availableWidth, recordMinimumTableWidth)
-        let extraWidth = tableWidth - recordMinimumTableWidth
+        let contentWidth = max(availableWidth, recordMinimumContentWidth)
+        let extraWidth = contentWidth - recordMinimumContentWidth
         return zip(recordBaseColumnWidths, recordExtraWidthWeights).map { base, weight in
             base + extraWidth * weight
         }

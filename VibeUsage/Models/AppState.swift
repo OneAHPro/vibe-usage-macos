@@ -227,13 +227,6 @@ final class AppState {
         }
     }
 
-    func activityHeatmap(for metric: HeatmapMetric) -> ActivityHeatmap {
-        guard case .hourly(let heatmap) = activityPresentation(for: metric) else {
-            return ActivityHeatmap(buckets: [], metric: metric)
-        }
-        return heatmap
-    }
-
     // MARK: - Config
     var isConfigured: Bool = false
     var runtimeAvailable: Bool = false

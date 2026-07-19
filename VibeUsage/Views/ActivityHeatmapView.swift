@@ -10,34 +10,34 @@ struct ActivityHeatmapView: View {
     ]
 
     var body: some View {
-        let heatmap = appState.activityHeatmap(for: metric)
+        let presentation = appState.activityPresentation(for: metric)
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 6) {
                 Image(systemName: "calendar")
                     .font(.system(size: 12, weight: .medium))
-                Text("分时活跃")
+                Text(presentation.title)
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 metricSelector
             }
             .foregroundStyle(AppTheme.secondaryText)
 
-            HeatmapGrid(heatmap: heatmap, metric: metric, weekdays: weekdays)
-            .frame(height: 154)
-            .overlay {
-                if appState.isLoadingHeatmap {
-                    AppTheme.surface
-                        .overlay {
-                            VStack(spacing: 8) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("正在加载分时数据…")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(AppTheme.tertiaryText)
+            activityContent(presentation)
+                .frame(height: 154)
+                .overlay {
+                    if appState.isLoadingHeatmap {
+                        AppTheme.surface
+                            .overlay {
+                                VStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("正在加载活跃数据…")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(AppTheme.tertiaryText)
+                                }
                             }
-                        }
+                    }
                 }
-            }
 
             HStack(spacing: 4) {
                 Spacer()
@@ -61,6 +61,20 @@ struct ActivityHeatmapView: View {
                 .fill(AppTheme.surface)
         }
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func activityContent(_ presentation: ActivityPresentation) -> some View {
+        switch presentation {
+        case .hourly(let heatmap):
+            HeatmapGrid(heatmap: heatmap, metric: metric, weekdays: weekdays)
+        case .daily(let heatmap):
+            DailyCalendarHeatmapGrid(heatmap: heatmap, metric: metric)
+        case .monthly(let heatmap):
+            MonthlyActivityHeatmapGrid(heatmap: heatmap, metric: metric)
+        case .unavailable(let message):
+            ActivityUnavailableView(message: message)
+        }
     }
 
     private func activityColor(intensity: Double) -> Color {
@@ -91,6 +105,179 @@ struct ActivityHeatmapView: View {
         .padding(2)
         .background(AppTheme.selectionBackground)
         .clipShape(Capsule())
+    }
+}
+
+private struct DailyCalendarHeatmapGrid: View {
+    let heatmap: DailyActivityHeatmap
+    let metric: HeatmapMetric
+
+    private let weekdayLabels = ["一", "二", "三", "四", "五", "六", "日"]
+    private let rowSpacing: CGFloat = 4
+    private let columnSpacing: CGFloat = 4
+    private let weekdayLabelWidth: CGFloat = 18
+
+    var body: some View {
+        GeometryReader { proxy in
+            let visibleWeekCount = DashboardLayout.dailyHeatmapColumnCount(
+                dataWeekCount: heatmap.weekCount
+            )
+            let leadingWeekCount = DashboardLayout.dailyHeatmapLeadingColumnCount(
+                dataWeekCount: heatmap.weekCount
+            )
+            let cellSize = dailyCellSize(
+                availableWidth: proxy.size.width,
+                visibleWeekCount: visibleWeekCount
+            )
+            let gridWidth = weekdayLabelWidth
+                + CGFloat(max(visibleWeekCount - 1, 0)) * columnSpacing
+                + CGFloat(visibleWeekCount) * cellSize
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: columnSpacing) {
+                    Color.clear.frame(width: weekdayLabelWidth, height: 1)
+                    ForEach(0..<visibleWeekCount, id: \.self) { visibleWeekIndex in
+                        Text(weekLabel(for: visibleWeekIndex - leadingWeekCount))
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundStyle(AppTheme.tertiaryText)
+                            .frame(width: cellSize, alignment: .leading)
+                            .lineLimit(1)
+                    }
+                }
+
+                VStack(spacing: rowSpacing) {
+                    ForEach(0..<7, id: \.self) { weekdayIndex in
+                        HStack(spacing: columnSpacing) {
+                            Text(weekdayLabels[weekdayIndex])
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(AppTheme.tertiaryText)
+                                .frame(width: weekdayLabelWidth, alignment: .leading)
+
+                            ForEach(0..<visibleWeekCount, id: \.self) { visibleWeekIndex in
+                                let weekIndex = visibleWeekIndex - leadingWeekCount
+                                if let cell = heatmap.cell(
+                                    weekdayIndex: weekdayIndex,
+                                    weekIndex: weekIndex
+                                ) {
+                                    RoundedRectangle(cornerRadius: 2.5)
+                                        .fill(cellColor(cell))
+                                        .frame(width: cellSize, height: cellSize)
+                                        .help(cellTooltip(cell))
+                                } else {
+                                    RoundedRectangle(cornerRadius: 2.5)
+                                        .fill(AppTheme.separator.opacity(0.18))
+                                        .frame(width: cellSize, height: cellSize)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(width: gridWidth)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+    }
+
+    private func dailyCellSize(availableWidth: CGFloat, visibleWeekCount: Int) -> CGFloat {
+        guard visibleWeekCount > 0 else { return 12 }
+        let spacing = CGFloat(max(visibleWeekCount - 1, 0)) * columnSpacing
+        let fitting = (availableWidth - weekdayLabelWidth - spacing) / CGFloat(visibleWeekCount)
+        return min(max(fitting, 7), 18)
+    }
+
+    private func weekLabel(for weekIndex: Int) -> String {
+        guard weekIndex >= 0 else { return "" }
+        let cells = heatmap.cells.filter {
+            $0.weekIndex == weekIndex && $0.isInRequestedRange
+        }
+        guard !cells.isEmpty else { return "" }
+
+        let firstVisibleWeek = heatmap.cells
+            .filter(\.isInRequestedRange)
+            .map(\.weekIndex)
+            .min()
+        let labelCell = weekIndex == firstVisibleWeek
+            ? cells.first
+            : cells.first(where: { $0.dayKey.hasSuffix("-01") })
+        guard let labelCell,
+              let month = Int(labelCell.dayKey.dropFirst(5).prefix(2))
+        else { return "" }
+        return "\(month)月"
+    }
+
+    private func cellColor(_ cell: DailyActivityCell) -> Color {
+        guard cell.isInRequestedRange else { return AppTheme.separator.opacity(0.18) }
+        return heatmapColor(metric: metric, intensity: heatmap.intensity(dayKey: cell.dayKey))
+    }
+
+    private func cellTooltip(_ cell: DailyActivityCell) -> String {
+        guard cell.isInRequestedRange else { return cell.dayKey }
+        return "\(cell.dayKey)\n\(heatmapTooltipValue(metric: metric, value: cell.value))"
+    }
+}
+
+private struct MonthlyActivityHeatmapGrid: View {
+    let heatmap: MonthlyActivityHeatmap
+    let metric: HeatmapMetric
+
+    var body: some View {
+        if heatmap.months.isEmpty {
+            ActivityUnavailableView(message: "当前范围暂无月度数据")
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(heatmap.months) { month in
+                        VStack(spacing: 7) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(heatmapColor(
+                                    metric: metric,
+                                    intensity: heatmap.intensity(monthKey: month.monthKey)
+                                ))
+                                .frame(width: 34, height: 34)
+                                .help("\(month.monthKey)\n\(heatmapTooltipValue(metric: metric, value: month.value))")
+                            Text(month.monthKey)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(AppTheme.tertiaryText)
+                        }
+                    }
+                }
+                .padding(.horizontal, 2)
+                .frame(minWidth: 0, minHeight: 154, alignment: .center)
+            }
+        }
+    }
+}
+
+private struct ActivityUnavailableView: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 7) {
+            Image(systemName: "chart.dots.scatter")
+                .font(.system(size: 17))
+            Text(message)
+                .font(.system(size: 11))
+        }
+        .foregroundStyle(AppTheme.tertiaryText)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private func heatmapColor(metric: HeatmapMetric, intensity: Double) -> Color {
+    guard intensity > 0 else { return AppTheme.separator.opacity(0.55) }
+    let clamped = min(max(intensity, 0), 1)
+    if metric == .cost {
+        return AppTheme.costAccent.opacity(0.18 + clamped * 0.78)
+    }
+    return AppTheme.primaryText.opacity(0.18 + clamped * 0.68)
+}
+
+private func heatmapTooltipValue(metric: HeatmapMetric, value: Double) -> String {
+    switch metric {
+    case .token:
+        return "Token: \(Formatters.formatExactNumber(Int(value.rounded())))"
+    case .cost:
+        return "费用: \(Formatters.formatCost(value))"
     }
 }
 

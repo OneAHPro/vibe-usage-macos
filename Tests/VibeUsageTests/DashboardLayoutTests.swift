@@ -279,6 +279,36 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func dailyHeatmapPreservesTheTwentyFourColumnMatrix() {
+        #expect(DashboardLayout.dailyHeatmapColumnCount(dataWeekCount: 6) == 24)
+        #expect(DashboardLayout.dailyHeatmapColumnCount(dataWeekCount: 14) == 24)
+        #expect(DashboardLayout.dailyHeatmapColumnCount(dataWeekCount: 30) == 30)
+        #expect(DashboardLayout.dailyHeatmapLeadingColumnCount(dataWeekCount: 6) == 18)
+        #expect(DashboardLayout.dailyHeatmapLeadingColumnCount(dataWeekCount: 14) == 10)
+        #expect(DashboardLayout.dailyHeatmapLeadingColumnCount(dataWeekCount: 30) == 0)
+    }
+
+    @Test
+    func activityCardRendersTheDeclaredBucketGranularity() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/ActivityHeatmapView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(view.contains("appState.activityPresentation(for: metric)"))
+        #expect(view.contains("case .hourly(let heatmap):"))
+        #expect(view.contains("case .daily(let heatmap):"))
+        #expect(view.contains("case .monthly(let heatmap):"))
+        #expect(view.contains("DailyCalendarHeatmapGrid"))
+        #expect(view.contains("MonthlyActivityHeatmapGrid"))
+        #expect(!view.contains("let heatmap = appState.activityHeatmap(for: metric)"))
+    }
+
+    @Test
     func heatmapHoverMapsOneTrackingRegionToTheCorrectCell() {
         let cellSize: CGFloat = 10
 

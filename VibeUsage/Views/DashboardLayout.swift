@@ -45,6 +45,14 @@ enum DashboardLayout {
         cellSize * 7 + heatmapRowSpacing * 6
     }
 
+    static func dailyHeatmapColumnCount(dataWeekCount: Int) -> Int {
+        max(24, dataWeekCount)
+    }
+
+    static func dailyHeatmapLeadingColumnCount(dataWeekCount: Int) -> Int {
+        max(dailyHeatmapColumnCount(dataWeekCount: dataWeekCount) - dataWeekCount, 0)
+    }
+
     static func heatmapCellTarget(
         at point: CGPoint,
         cellSize: CGFloat

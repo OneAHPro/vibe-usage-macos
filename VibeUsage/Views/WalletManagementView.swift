@@ -633,7 +633,7 @@ struct WalletManagementView: View {
     private func refresh() {
         guard let client else { return }
         Task {
-            await store.refresh(client: client)
+            await store.refresh(client: client, target: selectedSection.refreshTarget)
             selectDefaultPaymentIfNeeded()
         }
     }
@@ -667,6 +667,14 @@ private enum WalletSection: String, CaseIterable, Identifiable {
     case records = "资金记录"
 
     var id: String { rawValue }
+
+    var refreshTarget: WalletRefreshTarget {
+        switch self {
+        case .subscriptions: .subscriptions
+        case .recharge: .recharge
+        case .records: .records
+        }
+    }
 }
 
 private struct WalletPaymentOption: Identifiable {

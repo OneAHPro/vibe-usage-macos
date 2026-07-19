@@ -25,7 +25,7 @@ enum DashboardPage: Equatable {
         case .usage: "AI 使用与成本仪表盘"
         case .leaderboard: "new 系统实时用量排名"
         case .tokens: "创建、管理与保护 API 访问令牌"
-        case .wallet: "查看余额、充值与资金记录"
+        case .wallet: "管理订阅、余额充值与资金记录"
         case .activity: "查看 VibeCafé 最新活动"
         case .settings: "账号、远程数据与应用偏好"
         }

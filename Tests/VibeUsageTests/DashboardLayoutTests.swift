@@ -155,6 +155,7 @@ struct DashboardLayoutTests {
         #expect(view.contains("可选套餐"))
         #expect(view.contains("SubscriptionPurchaseSheet"))
         #expect(view.contains("loadFundingRecordsIfNeeded"))
+        #expect(view.contains("target: selectedSection.refreshTarget"))
         #expect(view.contains("在线充值"))
         #expect(view.contains("预计支付金额"))
         #expect(view.contains("计算实付"))

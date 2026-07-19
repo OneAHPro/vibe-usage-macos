@@ -1,6 +1,19 @@
 import Foundation
 import Observation
 
+enum WalletRefreshTarget {
+    case subscriptions
+    case recharge
+    case records
+}
+
+private enum WalletErrorSource {
+    case subscriptions
+    case recharge
+    case records
+    case mutation
+}
+
 @Observable
 @MainActor
 final class WalletManagementStore {
@@ -14,10 +27,23 @@ final class WalletManagementStore {
     private(set) var total = 0
     private(set) var hasLoaded = false
     private(set) var hasLoadedFundingRecords = false
-    private(set) var isLoading = false
+    private var isLoadingOverview = false
+    private var isLoadingRecords = false
     private(set) var isMutating = false
     private(set) var requiresAuthentication = false
-    var errorMessage: String?
+    private var subscriptionErrorMessage: String?
+    private var rechargeErrorMessage: String?
+    private var recordsErrorMessage: String?
+    private var mutationErrorMessage: String?
+    var errorMessage: String? {
+        get {
+            mutationErrorMessage
+                ?? subscriptionErrorMessage
+                ?? rechargeErrorMessage
+                ?? recordsErrorMessage
+        }
+        set { mutationErrorMessage = newValue }
+    }
     var checkoutMessage: String?
     private(set) var estimatedPaymentAmount: Double?
     private(set) var estimatedPaymentRequest: PaymentRequest?
@@ -25,16 +51,21 @@ final class WalletManagementStore {
     let pageSize = 20
 
     var pageCount: Int { max(Int(ceil(Double(total) / Double(pageSize))), 1) }
+    var isLoading: Bool { isLoadingOverview || isLoadingRecords }
+
+    private var generation = 0
 
     func loadIfNeeded(client: any AccountManagementClient) async {
         guard !hasLoaded else { return }
-        await load(client: client)
+        _ = await load(client: client, target: .subscriptions)
     }
 
-    func refresh(client: any AccountManagementClient) async {
-        await load(client: client)
-        if hasLoadedFundingRecords {
-            await loadRecords(client: client)
+    func refresh(client: any AccountManagementClient, target: WalletRefreshTarget) async {
+        let operationGeneration = generation
+        let overviewSucceeded = await load(client: client, target: target)
+        guard overviewSucceeded, generation == operationGeneration else { return }
+        if target == .records {
+            await loadRecords(client: client, expectedGeneration: operationGeneration)
         }
     }
 
@@ -59,15 +90,19 @@ final class WalletManagementStore {
             errorMessage = "请先确认预计支付金额"
             return nil
         }
+        let operationGeneration = generation
         isMutating = true
-        defer { isMutating = false }
+        defer {
+            if generation == operationGeneration { isMutating = false }
+        }
         do {
             let checkout = try await client.createPaymentCheckout(request)
+            guard generation == operationGeneration else { return nil }
             errorMessage = nil
-            requiresAuthentication = false
             checkoutMessage = "支付完成后请刷新余额与账单"
             return checkout
         } catch {
+            guard generation == operationGeneration else { return nil }
             record(error)
             return nil
         }
@@ -78,15 +113,19 @@ final class WalletManagementStore {
         client: any AccountManagementClient
     ) async -> PaymentCheckout? {
         guard !isMutating else { return nil }
+        let operationGeneration = generation
         isMutating = true
-        defer { isMutating = false }
+        defer {
+            if generation == operationGeneration { isMutating = false }
+        }
         do {
             let checkout = try await client.createSubscriptionCheckout(request)
+            guard generation == operationGeneration else { return nil }
             errorMessage = nil
-            requiresAuthentication = false
             checkoutMessage = "支付完成后请刷新订阅状态"
             return checkout
         } catch {
+            guard generation == operationGeneration else { return nil }
             record(error)
             return nil
         }
@@ -97,13 +136,18 @@ final class WalletManagementStore {
         client: any AccountManagementClient
     ) async {
         guard !isMutating, preference != billingPreference else { return }
+        let operationGeneration = generation
         isMutating = true
-        defer { isMutating = false }
+        defer {
+            if generation == operationGeneration { isMutating = false }
+        }
         do {
-            billingPreference = try await client.updateBillingPreference(preference)
+            let loadedPreference = try await client.updateBillingPreference(preference)
+            guard generation == operationGeneration else { return }
+            billingPreference = loadedPreference
             errorMessage = nil
-            requiresAuthentication = false
         } catch {
+            guard generation == operationGeneration else { return }
             record(error)
         }
     }
@@ -119,15 +163,19 @@ final class WalletManagementStore {
         client: any AccountManagementClient
     ) async {
         guard !isMutating else { return }
+        let operationGeneration = generation
         isMutating = true
-        defer { isMutating = false }
+        defer {
+            if generation == operationGeneration { isMutating = false }
+        }
         do {
             let amount = try await client.fetchPaymentAmount(request)
+            guard generation == operationGeneration else { return }
             estimatedPaymentAmount = amount
             estimatedPaymentRequest = request
             errorMessage = nil
-            requiresAuthentication = false
         } catch {
+            guard generation == operationGeneration else { return }
             clearPaymentEstimate()
             record(error)
         }
@@ -149,6 +197,7 @@ final class WalletManagementStore {
     }
 
     func reset() {
+        generation &+= 1
         user = nil
         topUpInfo = nil
         plans = []
@@ -160,57 +209,112 @@ final class WalletManagementStore {
         page = 1
         hasLoaded = false
         hasLoadedFundingRecords = false
-        isLoading = false
+        isLoadingOverview = false
+        isLoadingRecords = false
         isMutating = false
         requiresAuthentication = false
-        errorMessage = nil
+        subscriptionErrorMessage = nil
+        rechargeErrorMessage = nil
+        recordsErrorMessage = nil
+        mutationErrorMessage = nil
         checkoutMessage = nil
         clearPaymentEstimate()
     }
 
-    private func load(client: any AccountManagementClient) async {
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
+    private func load(
+        client: any AccountManagementClient,
+        target: WalletRefreshTarget
+    ) async -> Bool {
+        guard !isLoadingOverview else { return false }
+        let operationGeneration = generation
+        let errorSource: WalletErrorSource = switch target {
+        case .subscriptions: .subscriptions
+        case .recharge: .recharge
+        case .records: .records
+        }
+        isLoadingOverview = true
+        defer {
+            if generation == operationGeneration { isLoadingOverview = false }
+        }
         do {
             let loadedUser = try await client.fetchCurrentUser()
-            let loadedInfo = try await client.fetchTopUpInfo()
-            let loadedPlans = try await client.fetchSubscriptionPlans()
-            let loadedSubscriptions = try await client.fetchSubscriptionSelf()
+            guard generation == operationGeneration else { return false }
+
+            switch target {
+            case .subscriptions:
+                let loadedInfo = try await client.fetchTopUpInfo()
+                guard generation == operationGeneration else { return false }
+                let loadedPlans = try await client.fetchSubscriptionPlans()
+                guard generation == operationGeneration else { return false }
+                let loadedSubscriptions = try await client.fetchSubscriptionSelf()
+                guard generation == operationGeneration else { return false }
+
+                topUpInfo = loadedInfo
+                plans = loadedPlans.map(\.plan)
+                subscriptions = loadedSubscriptions.subscriptions
+                allSubscriptions = loadedSubscriptions.allSubscriptions
+                billingPreference = loadedSubscriptions.billingPreference
+                hasLoaded = true
+            case .recharge:
+                let loadedInfo = try await client.fetchTopUpInfo()
+                guard generation == operationGeneration else { return false }
+                topUpInfo = loadedInfo
+            case .records:
+                break
+            }
+
             clearPaymentEstimate()
             user = loadedUser
-            topUpInfo = loadedInfo
-            plans = loadedPlans.map(\.plan)
-            subscriptions = loadedSubscriptions.subscriptions
-            allSubscriptions = loadedSubscriptions.allSubscriptions
-            billingPreference = loadedSubscriptions.billingPreference
-            hasLoaded = true
-            errorMessage = nil
-            requiresAuthentication = false
+            clearError(errorSource)
+            return true
         } catch {
-            record(error)
+            guard generation == operationGeneration else { return false }
+            record(error, source: errorSource)
+            return false
         }
     }
 
-    private func loadRecords(client: any AccountManagementClient) async {
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
+    private func loadRecords(
+        client: any AccountManagementClient,
+        expectedGeneration: Int? = nil
+    ) async {
+        guard !isLoadingRecords else { return }
+        let operationGeneration = expectedGeneration ?? generation
+        guard generation == operationGeneration else { return }
+        isLoadingRecords = true
+        defer {
+            if generation == operationGeneration { isLoadingRecords = false }
+        }
         do {
             let loadedPage = try await client.fetchTopUps(page: page, pageSize: pageSize)
+            guard generation == operationGeneration else { return }
             records = loadedPage.items
             total = loadedPage.total
             page = loadedPage.page
             hasLoadedFundingRecords = true
-            errorMessage = nil
-            requiresAuthentication = false
+            clearError(.records)
         } catch {
-            record(error)
+            guard generation == operationGeneration else { return }
+            record(error, source: .records)
         }
     }
 
-    private func record(_ error: Error) {
-        errorMessage = error.localizedDescription
+    private func clearError(_ source: WalletErrorSource) {
+        switch source {
+        case .subscriptions: subscriptionErrorMessage = nil
+        case .recharge: rechargeErrorMessage = nil
+        case .records: recordsErrorMessage = nil
+        case .mutation: mutationErrorMessage = nil
+        }
+    }
+
+    private func record(_ error: Error, source: WalletErrorSource = .mutation) {
+        switch source {
+        case .subscriptions: subscriptionErrorMessage = error.localizedDescription
+        case .recharge: rechargeErrorMessage = error.localizedDescription
+        case .records: recordsErrorMessage = error.localizedDescription
+        case .mutation: mutationErrorMessage = error.localizedDescription
+        }
         if let apiError = error as? APIClient.APIError, case .unauthorized = apiError {
             requiresAuthentication = true
         }

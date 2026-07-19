@@ -73,6 +73,48 @@ struct APIClientTests {
         #expect(request.model == "gpt-5.6-sol")
         #expect(request.firstResponseTimeMs == 2_400)
         #expect(request.outputTokens == 30)
+        #expect(usage.coverage == nil)
+    }
+
+    @Test
+    func fetchUsageDecodesCoverageGranularity() async throws {
+        let session = makeSession { request in
+            response(
+                for: request,
+                body: #"{"success":true,"message":"","data":{"buckets":[],"sessions":[],"recentRequests":[],"summary":{"estimatedCost":0,"inputTokens":0,"outputTokens":0,"cachedInputTokens":0,"cacheCreationInputTokens":0,"reasoningOutputTokens":0,"totalTokens":0,"requestCount":0},"coverage":{"requestedStart":"2026-06-19T00:38:47Z","requestedEnd":"2026-07-19T00:38:47Z","dataStart":"2026-06-20T11:34:18Z","dataEnd":"2026-07-19T00:37:00Z","complete":false,"granularity":"day"},"hasAnyData":false}}"#
+            )
+        }
+        let client = APIClient(
+            baseURL: "https://api.anhepro.com",
+            userID: 7,
+            session: session
+        )
+
+        let usage = try await client.fetchUsage(range: .days(30))
+
+        #expect(usage.coverage?.granularity == .day)
+        #expect(usage.coverage?.complete == false)
+        #expect(usage.coverage?.requestedStart == "2026-06-19T00:38:47Z")
+        #expect(usage.coverage?.dataStart == "2026-06-20T11:34:18Z")
+    }
+
+    @Test
+    func fetchUsagePreservesUnknownCoverageGranularity() async throws {
+        let session = makeSession { request in
+            response(
+                for: request,
+                body: #"{"success":true,"message":"","data":{"buckets":[],"sessions":[],"coverage":{"requestedStart":null,"requestedEnd":null,"dataStart":null,"dataEnd":null,"complete":true,"granularity":"quarter"},"hasAnyData":false}}"#
+            )
+        }
+        let client = APIClient(
+            baseURL: "https://api.anhepro.com",
+            userID: 7,
+            session: session
+        )
+
+        let usage = try await client.fetchUsage(range: .all)
+
+        #expect(usage.coverage?.granularity == .unknown("quarter"))
     }
 
     @Test

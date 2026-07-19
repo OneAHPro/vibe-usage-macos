@@ -1,5 +1,46 @@
 import Foundation
 
+enum UsageGranularity: Equatable, Sendable, Codable {
+    case hour
+    case day
+    case month
+    case mixed
+    case unknown(String)
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "hour": self = .hour
+        case "day": self = .day
+        case "month": self = .month
+        case "mixed": self = .mixed
+        default: self = .unknown(value)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        let value: String
+        switch self {
+        case .hour: value = "hour"
+        case .day: value = "day"
+        case .month: value = "month"
+        case .mixed: value = "mixed"
+        case .unknown(let rawValue): value = rawValue
+        }
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
+}
+
+struct UsageCoverage: Codable, Equatable, Sendable {
+    let requestedStart: String?
+    let requestedEnd: String?
+    let dataStart: String?
+    let dataEnd: String?
+    let complete: Bool
+    let granularity: UsageGranularity
+}
+
 struct UsageBucket: Codable, Identifiable, Equatable {
     var id: String {
         "\(bucketStart)-\(source)-\(model)-\(project)-\(hostname)"
@@ -66,17 +107,20 @@ struct UsageResponse: Codable {
     let buckets: [UsageBucket]
     let sessions: [UsageSession]?
     let recentRequests: [UsageRequestRecord]?
+    let coverage: UsageCoverage?
     let hasAnyData: Bool
 
     init(
         buckets: [UsageBucket],
         sessions: [UsageSession]?,
         recentRequests: [UsageRequestRecord]? = nil,
+        coverage: UsageCoverage? = nil,
         hasAnyData: Bool
     ) {
         self.buckets = buckets
         self.sessions = sessions
         self.recentRequests = recentRequests
+        self.coverage = coverage
         self.hasAnyData = hasAnyData
     }
 }

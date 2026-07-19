@@ -7,11 +7,34 @@ struct AuthenticatedUser: Codable, Equatable, Sendable {
     let role: Int
     let status: Int
     let group: String
+    let quota: Int?
     let usedQuota: Int?
     let requestCount: Int?
 
+    init(
+        id: Int,
+        username: String,
+        displayName: String?,
+        role: Int,
+        status: Int,
+        group: String,
+        quota: Int? = nil,
+        usedQuota: Int?,
+        requestCount: Int?
+    ) {
+        self.id = id
+        self.username = username
+        self.displayName = displayName
+        self.role = role
+        self.status = status
+        self.group = group
+        self.quota = quota
+        self.usedQuota = usedQuota
+        self.requestCount = requestCount
+    }
+
     enum CodingKeys: String, CodingKey {
-        case id, username, role, status, group
+        case id, username, role, status, group, quota
         case displayName = "display_name"
         case usedQuota = "used_quota"
         case requestCount = "request_count"
@@ -37,11 +60,12 @@ private struct LoginPayload: Decodable {
     let role: Int?
     let status: Int?
     let group: String?
+    let quota: Int?
     let usedQuota: Int?
     let requestCount: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, username, role, status, group
+        case id, username, role, status, group, quota
         case requireTwoFactor = "require_2fa"
         case displayName = "display_name"
         case usedQuota = "used_quota"
@@ -57,6 +81,7 @@ private struct LoginPayload: Decodable {
             role: role,
             status: status,
             group: group,
+            quota: quota,
             usedQuota: usedQuota,
             requestCount: requestCount
         )

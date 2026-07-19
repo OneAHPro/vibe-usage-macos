@@ -34,7 +34,7 @@ struct APIClientTests {
             #expect(object["code"] == "381427")
             return response(
                 for: request,
-                body: #"{"success":true,"message":"","data":{"id":7,"username":"xuande","display_name":"徐安","role":1,"status":1,"group":"pro","used_quota":750000,"request_count":321}}"#
+                body: #"{"success":true,"message":"","data":{"id":7,"username":"xuande","display_name":"徐安","role":1,"status":1,"group":"pro","quota":4250000,"used_quota":750000,"request_count":321}}"#
             )
         }
         let client = APIClient(baseURL: "https://api.anhepro.com", session: session)
@@ -146,7 +146,7 @@ struct APIClientTests {
             #expect(request.value(forHTTPHeaderField: "New-Api-User") == "7")
             return response(
                 for: request,
-                body: #"{"success":true,"message":"","data":{"id":7,"username":"xuande","display_name":"徐安","role":1,"status":1,"group":"pro","used_quota":750000,"request_count":321}}"#
+                body: #"{"success":true,"message":"","data":{"id":7,"username":"xuande","display_name":"徐安","role":1,"status":1,"group":"pro","quota":4250000,"used_quota":750000,"request_count":321}}"#
             )
         }
         let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
@@ -154,6 +154,7 @@ struct APIClientTests {
         let user = try await client.fetchCurrentUser()
 
         #expect(user.username == "xuande")
+        #expect(user.quota == 4_250_000)
         #expect(user.usedQuota == 750_000)
         #expect(user.requestCount == 321)
     }

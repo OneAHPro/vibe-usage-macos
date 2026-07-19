@@ -241,3 +241,234 @@ struct ActivityHeatmap: Equatable {
         weekday * 24 + hour
     }
 }
+
+struct DailyActivityCell: Identifiable, Equatable {
+    let dayKey: String
+    let date: Date
+    let value: Double
+    let isInRequestedRange: Bool
+    let weekdayIndex: Int
+    let weekIndex: Int
+
+    var id: String { dayKey }
+}
+
+struct DailyActivityHeatmap: Equatable {
+    let cells: [DailyActivityCell]
+    let weekCount: Int
+    let maximum: Double
+    private let values: [String: Double]
+
+    init(
+        buckets: [UsageBucket],
+        metric: HeatmapMetric = .token,
+        requestedStart: String?,
+        requestedEnd: String?,
+        calendar: Calendar = .current
+    ) {
+        var aggregated: [String: Double] = [:]
+        for bucket in buckets {
+            guard let dayKey = Self.dayKey(from: bucket.bucketStart) else { continue }
+            aggregated[dayKey, default: 0] += Self.metricValue(bucket, metric: metric)
+        }
+        values = aggregated
+        maximum = aggregated.values.max() ?? 0
+
+        let availableKeys = aggregated.keys.sorted()
+        let lowerKey = Self.dayKey(from: requestedStart) ?? availableKeys.first
+        let upperKey = Self.dayKey(from: requestedEnd) ?? availableKeys.last
+        guard let lowerKey,
+              let upperKey,
+              let lowerDate = Self.date(from: min(lowerKey, upperKey), calendar: calendar),
+              let upperDate = Self.date(from: max(lowerKey, upperKey), calendar: calendar)
+        else {
+            cells = []
+            weekCount = 0
+            return
+        }
+
+        let requestedLowerKey = min(lowerKey, upperKey)
+        let requestedUpperKey = max(lowerKey, upperKey)
+        let lowerWeekday = Self.mondayFirstWeekdayIndex(for: lowerDate, calendar: calendar)
+        let upperWeekday = Self.mondayFirstWeekdayIndex(for: upperDate, calendar: calendar)
+        guard let gridStart = calendar.date(byAdding: .day, value: -lowerWeekday, to: lowerDate),
+              let gridEnd = calendar.date(byAdding: .day, value: 6 - upperWeekday, to: upperDate)
+        else {
+            cells = []
+            weekCount = 0
+            return
+        }
+
+        let dayCount = max(calendar.dateComponents([.day], from: gridStart, to: gridEnd).day ?? 0, 0)
+        var result: [DailyActivityCell] = []
+        result.reserveCapacity(dayCount + 1)
+        for offset in 0...dayCount {
+            guard let date = calendar.date(byAdding: .day, value: offset, to: gridStart) else { continue }
+            let dayKey = Self.dayKey(from: date, calendar: calendar)
+            result.append(DailyActivityCell(
+                dayKey: dayKey,
+                date: date,
+                value: aggregated[dayKey, default: 0],
+                isInRequestedRange: dayKey >= requestedLowerKey && dayKey <= requestedUpperKey,
+                weekdayIndex: Self.mondayFirstWeekdayIndex(for: date, calendar: calendar),
+                weekIndex: offset / 7
+            ))
+        }
+        cells = result
+        weekCount = result.isEmpty ? 0 : (result.map(\.weekIndex).max() ?? 0) + 1
+    }
+
+    func value(dayKey: String) -> Double {
+        values[dayKey, default: 0]
+    }
+
+    func intensity(dayKey: String) -> Double {
+        guard maximum > 0 else { return 0 }
+        return value(dayKey: dayKey) / maximum
+    }
+
+    func cell(weekdayIndex: Int, weekIndex: Int) -> DailyActivityCell? {
+        cells.first { $0.weekdayIndex == weekdayIndex && $0.weekIndex == weekIndex }
+    }
+
+    private static func dayKey(from value: String?) -> String? {
+        guard let value, value.count >= 10 else { return nil }
+        let key = String(value.prefix(10))
+        let parts = key.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts[0].count == 4,
+              parts[1].count == 2,
+              parts[2].count == 2,
+              Int(parts[0]) != nil,
+              Int(parts[1]) != nil,
+              Int(parts[2]) != nil
+        else { return nil }
+        return key
+    }
+
+    private static func date(from dayKey: String, calendar: Calendar) -> Date? {
+        let parts = dayKey.split(separator: "-")
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2])
+        else { return nil }
+        var components = DateComponents()
+        components.calendar = calendar
+        components.timeZone = calendar.timeZone
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 12
+        return calendar.date(from: components)
+    }
+
+    private static func dayKey(from date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            locale: Locale(identifier: "en_US_POSIX"),
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
+    }
+
+    private static func mondayFirstWeekdayIndex(for date: Date, calendar: Calendar) -> Int {
+        let weekday = calendar.component(.weekday, from: date)
+        return (weekday + 5) % 7
+    }
+
+    private static func metricValue(_ bucket: UsageBucket, metric: HeatmapMetric) -> Double {
+        switch metric {
+        case .token: Double(bucket.computedTotal)
+        case .cost: bucket.estimatedCost ?? 0
+        }
+    }
+}
+
+struct MonthlyActivityValue: Identifiable, Equatable {
+    let monthKey: String
+    let value: Double
+
+    var id: String { monthKey }
+}
+
+struct MonthlyActivityHeatmap: Equatable {
+    let months: [MonthlyActivityValue]
+    let maximum: Double
+
+    init(buckets: [UsageBucket], metric: HeatmapMetric = .token) {
+        var aggregated: [String: Double] = [:]
+        for bucket in buckets where bucket.bucketStart.count >= 7 {
+            let monthKey = String(bucket.bucketStart.prefix(7))
+            guard monthKey.count == 7, monthKey[monthKey.index(monthKey.startIndex, offsetBy: 4)] == "-" else {
+                continue
+            }
+            switch metric {
+            case .token:
+                aggregated[monthKey, default: 0] += Double(bucket.computedTotal)
+            case .cost:
+                aggregated[monthKey, default: 0] += bucket.estimatedCost ?? 0
+            }
+        }
+        months = aggregated.keys.sorted().map {
+            MonthlyActivityValue(monthKey: $0, value: aggregated[$0, default: 0])
+        }
+        maximum = months.map(\.value).max() ?? 0
+    }
+
+    func intensity(monthKey: String) -> Double {
+        guard maximum > 0,
+              let value = months.first(where: { $0.monthKey == monthKey })?.value
+        else { return 0 }
+        return value / maximum
+    }
+}
+
+enum ActivityPresentation: Equatable {
+    case hourly(ActivityHeatmap)
+    case daily(DailyActivityHeatmap)
+    case monthly(MonthlyActivityHeatmap)
+    case unavailable(String)
+
+    var title: String {
+        switch self {
+        case .hourly: "分时活跃"
+        case .daily: "每日活跃"
+        case .monthly: "每月活跃"
+        case .unavailable: "活跃分布"
+        }
+    }
+
+    var unavailableMessage: String? {
+        guard case .unavailable(let message) = self else { return nil }
+        return message
+    }
+
+    static func make(
+        buckets: [UsageBucket],
+        coverage: UsageCoverage?,
+        metric: HeatmapMetric = .token,
+        calendar: Calendar = .current
+    ) -> Self {
+        switch coverage?.granularity {
+        case .day:
+            .daily(DailyActivityHeatmap(
+                buckets: buckets,
+                metric: metric,
+                requestedStart: coverage?.requestedStart,
+                requestedEnd: coverage?.requestedEnd,
+                calendar: calendar
+            ))
+        case .month:
+            .monthly(MonthlyActivityHeatmap(buckets: buckets, metric: metric))
+        case .mixed:
+            .unavailable("当前范围包含不同统计粒度")
+        case .unknown(let value):
+            .unavailable("暂不支持统计粒度：\(value)")
+        case .hour, .none:
+            .hourly(ActivityHeatmap(buckets: buckets, metric: metric, calendar: calendar))
+        }
+    }
+}

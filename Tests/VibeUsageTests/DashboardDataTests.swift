@@ -276,6 +276,160 @@ struct DashboardDataTests {
     }
 
     @Test
+    func dailyActivityUsesBackendDayKeyWithoutInventingAnHour() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let buckets = [
+            bucket(
+                source: "codex",
+                project: "radar",
+                bucketStart: "2026-07-01T00:00:00Z",
+                input: 100,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 1
+            ),
+            bucket(
+                source: "claude",
+                project: "radar",
+                bucketStart: "2026-07-01T00:00:00Z",
+                input: 50,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 0.5
+            ),
+            bucket(
+                source: "codex",
+                project: "radar",
+                bucketStart: "2026-07-02T00:00:00Z",
+                input: 25,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 0.25
+            ),
+        ]
+
+        let tokenHeatmap = DailyActivityHeatmap(
+            buckets: buckets,
+            requestedStart: "2026-06-30T12:00:00Z",
+            requestedEnd: "2026-07-03T12:00:00Z",
+            calendar: calendar
+        )
+        let costHeatmap = DailyActivityHeatmap(
+            buckets: buckets,
+            metric: .cost,
+            requestedStart: "2026-06-30T12:00:00Z",
+            requestedEnd: "2026-07-03T12:00:00Z",
+            calendar: calendar
+        )
+
+        #expect(tokenHeatmap.value(dayKey: "2026-07-01") == 150)
+        #expect(tokenHeatmap.value(dayKey: "2026-07-02") == 25)
+        #expect(tokenHeatmap.maximum == 150)
+        #expect(costHeatmap.value(dayKey: "2026-07-01") == 1.5)
+        #expect(tokenHeatmap.cells.contains {
+            $0.dayKey == "2026-07-01" && $0.isInRequestedRange
+        })
+    }
+
+    @Test
+    func dailyActivityUsesMondayFirstCalendarPositions() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let heatmap = DailyActivityHeatmap(
+            buckets: [],
+            requestedStart: "2026-07-06T00:00:00Z",
+            requestedEnd: "2026-07-12T23:59:59Z",
+            calendar: calendar
+        )
+        let monday = try #require(heatmap.cells.first { $0.dayKey == "2026-07-06" })
+        let sunday = try #require(heatmap.cells.first { $0.dayKey == "2026-07-12" })
+
+        #expect(monday.weekdayIndex == 0)
+        #expect(monday.weekIndex == 0)
+        #expect(sunday.weekdayIndex == 6)
+        #expect(sunday.weekIndex == 0)
+        #expect(heatmap.weekCount == 1)
+    }
+
+    @Test
+    func monthlyActivityCombinesBucketsByBackendMonthKey() {
+        let heatmap = MonthlyActivityHeatmap(buckets: [
+            bucket(
+                source: "codex",
+                project: "radar",
+                bucketStart: "2026-06-01T00:00:00Z",
+                input: 100,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 1
+            ),
+            bucket(
+                source: "claude",
+                project: "radar",
+                bucketStart: "2026-06-01T00:00:00Z",
+                input: 50,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 0.5
+            ),
+            bucket(
+                source: "codex",
+                project: "radar",
+                bucketStart: "2026-07-01T00:00:00Z",
+                input: 25,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 0.25
+            ),
+        ])
+
+        #expect(heatmap.months.map(\.monthKey) == ["2026-06", "2026-07"])
+        #expect(heatmap.months[0].value == 150)
+        #expect(heatmap.maximum == 150)
+    }
+
+    @Test
+    func activityPresentationMatchesTheBackendGranularity() {
+        let buckets = [bucket(
+            source: "codex",
+            project: "radar",
+            bucketStart: "2026-07-01T00:00:00Z",
+            input: 25,
+            output: 0,
+            reasoning: 0,
+            cached: 0,
+            cost: 0.25
+        )]
+
+        let legacy = ActivityPresentation.make(buckets: buckets, coverage: nil)
+        let daily = ActivityPresentation.make(
+            buckets: buckets,
+            coverage: coverage(.day)
+        )
+        let monthly = ActivityPresentation.make(
+            buckets: buckets,
+            coverage: coverage(.month)
+        )
+        let mixed = ActivityPresentation.make(
+            buckets: buckets,
+            coverage: coverage(.mixed)
+        )
+
+        #expect(legacy.title == "分时活跃")
+        #expect(daily.title == "每日活跃")
+        #expect(monthly.title == "每月活跃")
+        #expect(mixed.title == "活跃分布")
+        #expect(mixed.unavailableMessage == "当前范围包含不同统计粒度")
+    }
+
+    @Test
     func parsesFractionalSecondTimestampsReturnedByUsageAPI() {
         let apiSession = session(
             source: "codex",
@@ -358,6 +512,17 @@ struct DashboardDataTests {
             reasoningOutputTokens: reasoning,
             totalTokens: input + output + reasoning + cached,
             estimatedCost: cost
+        )
+    }
+
+    private func coverage(_ granularity: UsageGranularity) -> UsageCoverage {
+        UsageCoverage(
+            requestedStart: "2026-06-01T00:00:00Z",
+            requestedEnd: "2026-07-31T23:59:59Z",
+            dataStart: nil,
+            dataEnd: nil,
+            complete: true,
+            granularity: granularity
         )
     }
 

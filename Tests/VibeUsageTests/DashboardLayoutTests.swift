@@ -78,10 +78,12 @@ struct DashboardLayoutTests {
         #expect(shell.contains("selectedPage = .tokens"))
         #expect(shell.contains("selectedPage = .wallet"))
         #expect(shell.contains("selectedPage = .activity"))
-        #expect(shell.contains("TokenManagementView()"))
-        #expect(shell.contains("WalletManagementView()"))
+        #expect(shell.contains("TokenManagementView("))
+        #expect(shell.contains("WalletManagementView("))
         #expect(shell.contains("ActivityCenterView()"))
         #expect(shell.contains("case .tokens, .wallet, .activity, .settings: .none"))
+        #expect(shell.contains("tokenStore.reset()"))
+        #expect(shell.contains("walletStore.reset()"))
     }
 
     @Test
@@ -102,6 +104,57 @@ struct DashboardLayoutTests {
         #expect(activity.contains("新活动上线后会在这里显示"))
         #expect(!activity.contains("Timer"))
         #expect(!activity.contains("URLSession"))
+    }
+
+    @Test
+    func tokenManagementUsesNativeExplicitActionsAndNeverStoresFullKeys() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: root.appendingPathComponent("VibeUsage/Views/TokenManagementView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(view.contains("令牌总数"))
+        #expect(view.contains("按名称搜索"))
+        #expect(view.contains(".onSubmit"))
+        #expect(view.contains("TokenEditorSheet"))
+        #expect(view.contains("confirmationDialog"))
+        #expect(view.contains("revealTokenKey"))
+        #expect(view.contains("NSPasteboard.general"))
+        #expect(view.contains("key.hasPrefix(\"sk-\")"))
+        #expect(!view.contains("fullKey"))
+        #expect(!view.contains("Timer"))
+        #expect(!view.contains("onChange(of: store.searchText"))
+    }
+
+    @Test
+    func walletManagementUsesNativeSummaryRechargeAndHistory() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: root.appendingPathComponent("VibeUsage/Views/WalletManagementView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(view.contains("当前余额"))
+        #expect(view.contains("历史消耗"))
+        #expect(view.contains("请求次数"))
+        #expect(view.contains("在线充值"))
+        #expect(view.contains("预计支付金额"))
+        #expect(view.contains("计算实付"))
+        #expect(view.contains("选择产品"))
+        #expect(view.contains("selectedCreemProductID"))
+        #expect(view.contains("Formatters.formatMoney(product.price, currency: product.currency)"))
+        #expect(view.contains("product.quota"))
+        #expect(view.contains("充值记录"))
+        #expect(view.contains("ExternalPaymentLauncher"))
+        #expect(!view.contains("Timer"))
+        #expect(!view.contains("WebView"))
     }
 
     @Test

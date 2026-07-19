@@ -224,7 +224,7 @@ struct APIClient: Sendable {
     }
 
     func sendRaw(request: URLRequest) async throws -> Data {
-        debugLog("[APIClient] \(request.httpMethod ?? "GET") \(request.url?.absoluteString ?? "")")
+        debugLog("[APIClient] \(request.httpMethod ?? "GET") \(request.url?.path ?? "")")
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse

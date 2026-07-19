@@ -52,6 +52,18 @@ struct AccountManagementStoreTests {
     }
 
     @Test
+    func unauthorizedAccountLoadRequestsCentralSessionCleanup() async {
+        let client = FakeAccountClient()
+        client.tokenLoadError = APIClient.APIError.unauthorized
+        let store = TokenManagementStore()
+
+        await store.loadIfNeeded(client: client)
+
+        #expect(store.requiresAuthentication)
+        #expect(store.tokens.isEmpty)
+    }
+
+    @Test
     func walletStoreLoadsItsThreeResourcesOnlyOnce() async {
         let client = FakeAccountClient()
         let store = WalletManagementStore()
@@ -63,7 +75,10 @@ struct AccountManagementStoreTests {
         #expect(client.topUpInfoCalls == 1)
         #expect(client.topUpPageCalls == 1)
 
+        await store.estimatePayment(.stripe(amount: 20), client: client)
+        #expect(store.estimatedPaymentAmount == 10)
         await store.refresh(client: client)
+        #expect(store.estimatedPaymentAmount == nil)
         #expect(client.userCalls == 2)
         #expect(client.topUpInfoCalls == 2)
         #expect(client.topUpPageCalls == 2)
@@ -81,6 +96,7 @@ private final class FakeAccountClient: AccountManagementClient {
     var revealCalls = 0
     var lastKeyword: String?
     var shouldFailTokenLoad = false
+    var tokenLoadError: Error?
 
     func fetchCurrentUser() async throws -> AuthenticatedUser {
         userCalls += 1
@@ -105,6 +121,7 @@ private final class FakeAccountClient: AccountManagementClient {
     ) async throws -> TokenPage {
         tokenPageCalls += 1
         lastKeyword = keyword
+        if let tokenLoadError { throw tokenLoadError }
         if shouldFailTokenLoad { throw Failure.requested }
         return TokenPage(page: page, pageSize: pageSize, total: 1, items: [Self.token])
     }
@@ -131,6 +148,8 @@ private final class FakeAccountClient: AccountManagementClient {
         topUpPageCalls += 1
         return TopUpPage(page: page, pageSize: pageSize, total: 0, items: [])
     }
+
+    func fetchPaymentAmount(_ request: PaymentRequest) async throws -> Double { 10 }
 
     func createPaymentCheckout(_ request: PaymentRequest) async throws -> PaymentCheckout {
         .url(URL(string: "https://pay.example.com")!)

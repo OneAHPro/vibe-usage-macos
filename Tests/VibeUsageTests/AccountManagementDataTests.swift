@@ -96,4 +96,13 @@ struct AccountManagementDataTests {
         #expect(TopUpRecord.statusLabel(for: "failed") == "失败")
         #expect(TopUpRecord.statusLabel(for: "expired") == "已过期")
     }
+
+    @Test
+    func tokenQuotaConversionRejectsNonFiniteAndOverflowingInput() {
+        #expect(TokenQuotaInput.quota(dollars: "10", quotaPerUnit: 500_000, unlimited: false) == 5_000_000)
+        #expect(TokenQuotaInput.quota(dollars: "1e999", quotaPerUnit: 500_000, unlimited: false) == nil)
+        #expect(TokenQuotaInput.quota(dollars: "-1", quotaPerUnit: 500_000, unlimited: false) == nil)
+        #expect(TokenQuotaInput.quota(dollars: "999999999999999999999", quotaPerUnit: 500_000, unlimited: false) == nil)
+        #expect(TokenQuotaInput.quota(dollars: "", quotaPerUnit: 500_000, unlimited: true) == 0)
+    }
 }

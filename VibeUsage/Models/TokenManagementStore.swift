@@ -9,6 +9,7 @@ final class TokenManagementStore {
     private(set) var hasLoaded = false
     private(set) var isLoading = false
     private(set) var isMutating = false
+    private(set) var requiresAuthentication = false
     var errorMessage: String?
     var page = 1
     let pageSize = 20
@@ -78,8 +79,9 @@ final class TokenManagementStore {
             let key = try await client.revealTokenKey(id: id)
             consume(key)
             errorMessage = nil
+            requiresAuthentication = false
         } catch {
-            errorMessage = error.localizedDescription
+            record(error)
         }
     }
 
@@ -93,6 +95,7 @@ final class TokenManagementStore {
         hasLoaded = false
         isLoading = false
         isMutating = false
+        requiresAuthentication = false
     }
 
     private func load(client: any AccountManagementClient) async {
@@ -111,8 +114,9 @@ final class TokenManagementStore {
             page = response.page
             hasLoaded = true
             errorMessage = nil
+            requiresAuthentication = false
         } catch {
-            errorMessage = error.localizedDescription
+            record(error)
         }
     }
 
@@ -126,11 +130,19 @@ final class TokenManagementStore {
         do {
             try await operation()
             errorMessage = nil
+            requiresAuthentication = false
             await load(client: client)
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            record(error)
             return false
+        }
+    }
+
+    private func record(_ error: Error) {
+        errorMessage = error.localizedDescription
+        if let apiError = error as? APIClient.APIError, case .unauthorized = apiError {
+            requiresAuthentication = true
         }
     }
 }

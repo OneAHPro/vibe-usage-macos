@@ -46,13 +46,7 @@ struct TokenRecord: Codable, Identifiable, Equatable, Sendable {
 
     var expirationLabel: String {
         guard expiredTime >= 0 else { return "永不过期" }
-        let date = Date(timeIntervalSince1970: TimeInterval(expiredTime))
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        return Formatters.formatUnixDate(expiredTime)
     }
 
     func quotaLabel(quotaPerUnit: Double) -> String {
@@ -269,4 +263,21 @@ enum PaymentRequest: Equatable, Sendable {
     case stripe(amount: Int64)
     case creem(productID: String)
     case waffo(amount: Int64, payMethodIndex: Int?)
+}
+
+enum TokenQuotaInput {
+    static func quota(dollars: String, quotaPerUnit: Double, unlimited: Bool) -> Int? {
+        if unlimited { return 0 }
+        guard quotaPerUnit.isFinite,
+              quotaPerUnit > 0,
+              let value = Double(dollars.trimmingCharacters(in: .whitespacesAndNewlines)),
+              value.isFinite,
+              value >= 0
+        else { return nil }
+
+        let quota = value * quotaPerUnit
+        let rounded = quota.rounded()
+        guard rounded.isFinite, rounded >= 0, rounded < Double(Int.max) else { return nil }
+        return Int(rounded)
+    }
 }

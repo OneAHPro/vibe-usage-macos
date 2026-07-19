@@ -30,6 +30,19 @@ enum Formatters {
         return String(format: "$%.2f", cost)
     }
 
+    static func formatMoney(_ amount: Double, currency: String) -> String {
+        let code = currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let prefix: String
+        switch code {
+        case "USD": prefix = "$"
+        case "EUR": prefix = "€"
+        case "CNY", "RMB": prefix = "¥"
+        case "GBP": prefix = "£"
+        default: prefix = code.isEmpty ? "" : "\(code) "
+        }
+        return "\(prefix)\(String(format: "%.2f", amount))"
+    }
+
     /// Match the new system dashboard's average TPM/RPM precision.
     static func formatRate(_ rate: Double) -> String {
         guard rate.isFinite else { return "0.000" }
@@ -131,6 +144,35 @@ enum Formatters {
             return ""
         }
         return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+
+    static func formatUnixDate(_ timestamp: Int64, timeZone: TimeZone = .current) -> String {
+        let components = unixDateComponents(timestamp, timeZone: timeZone)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            return "—"
+        }
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+
+    static func formatUnixDateTime(_ timestamp: Int64, timeZone: TimeZone = .current) -> String {
+        let components = unixDateComponents(timestamp, timeZone: timeZone)
+        guard let year = components.year,
+              let month = components.month,
+              let day = components.day,
+              let hour = components.hour,
+              let minute = components.minute else {
+            return "—"
+        }
+        return String(format: "%04d-%02d-%02d %02d:%02d", year, month, day, hour, minute)
+    }
+
+    private static func unixDateComponents(_ timestamp: Int64, timeZone: TimeZone) -> DateComponents {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute],
+            from: Date(timeIntervalSince1970: TimeInterval(timestamp))
+        )
     }
 
     private static func groupedDecimal(_ n: Int) -> String {

@@ -365,6 +365,45 @@ struct APIClientTests {
         #expect(stripe == .url(URL(string: "https://checkout.stripe.com/c/pay")!))
     }
 
+    @Test
+    func paymentBusinessFailurePreservesTheServerMessage() async throws {
+        let session = makeSession { request in
+            response(
+                for: request,
+                body: #"{"message":"error","data":"当前支付方式未启用"}"#
+            )
+        }
+        let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
+
+        do {
+            _ = try await client.createPaymentCheckout(.stripe(amount: 20))
+            Issue.record("Expected the payment request to fail")
+        } catch APIClient.APIError.server(let message) {
+            #expect(message == "当前支付方式未启用")
+        }
+    }
+
+    @Test
+    func paymentAmountUsesProviderSpecificCalculationEndpoints() async throws {
+        let recorder = TestRequestRecorder()
+        let session = makeSession { request in
+            _ = recorder.append(request)
+            return response(for: request, body: #"{"message":"success","data":"12.34"}"#)
+        }
+        let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
+
+        let epay = try await client.fetchPaymentAmount(.epay(amount: 20, paymentMethod: "alipay"))
+        let stripe = try await client.fetchPaymentAmount(.stripe(amount: 20))
+        let waffo = try await client.fetchPaymentAmount(.waffo(amount: 20, payMethodIndex: 1))
+
+        #expect(epay == 12.34)
+        #expect(stripe == 12.34)
+        #expect(waffo == 12.34)
+        #expect(recorder.requests.map { $0.url?.path } == [
+            "/api/user/amount", "/api/user/stripe/amount", "/api/user/waffo/amount",
+        ])
+    }
+
     private func makeSession(
         handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> URLSession {

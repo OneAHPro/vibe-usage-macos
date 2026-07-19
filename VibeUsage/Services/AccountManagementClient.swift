@@ -16,6 +16,7 @@ protocol AccountManagementClient {
     func revealTokenKey(id: Int) async throws -> String
     func fetchTopUpInfo() async throws -> TopUpInfo
     func fetchTopUps(page: Int, pageSize: Int) async throws -> TopUpPage
+    func fetchPaymentAmount(_ request: PaymentRequest) async throws -> Double
     func createPaymentCheckout(_ request: PaymentRequest) async throws -> PaymentCheckout
 }
 
@@ -142,37 +143,66 @@ extension APIClient: AccountManagementClient {
 
         let request = try accountRequest(path: path, method: "POST", body: body)
         let data = try await sendRaw(request: request)
+        let status = try JSONDecoder().decode(PaymentMessageResponse.self, from: data)
+        if status.message.lowercased() != "success" {
+            throw APIError.server(Self.paymentFailureMessage(from: data) ?? status.message)
+        }
 
         switch paymentRequest {
         case .epay:
             let response = try JSONDecoder().decode(EpayResponse.self, from: data)
-            try validatePaymentMessage(response.message, fallback: nil)
             guard let action = Self.validCheckoutURL(response.url), let fields = response.data else {
                 throw APIError.invalidResponse
             }
             return .form(action: action, fields: fields)
         case .stripe:
             let response = try JSONDecoder().decode(StripeResponse.self, from: data)
-            try validatePaymentMessage(response.message, fallback: nil)
             guard let url = Self.validCheckoutURL(response.data?.payLink) else {
                 throw APIError.invalidResponse
             }
             return .url(url)
         case .creem:
             let response = try JSONDecoder().decode(CreemResponse.self, from: data)
-            try validatePaymentMessage(response.message, fallback: nil)
             guard let url = Self.validCheckoutURL(response.data?.checkoutURL) else {
                 throw APIError.invalidResponse
             }
             return .url(url)
         case .waffo:
             let response = try JSONDecoder().decode(WaffoResponse.self, from: data)
-            try validatePaymentMessage(response.message, fallback: nil)
             guard let url = Self.validCheckoutURL(response.data?.paymentURL) else {
                 throw APIError.invalidResponse
             }
             return .url(url)
         }
+    }
+
+    func fetchPaymentAmount(_ paymentRequest: PaymentRequest) async throws -> Double {
+        let path: String
+        let body: Data
+        switch paymentRequest {
+        case .epay(let amount, let paymentMethod):
+            path = "/api/user/amount"
+            body = try JSONEncoder().encode(EpayRequest(amount: amount, paymentMethod: paymentMethod))
+        case .stripe(let amount):
+            path = "/api/user/stripe/amount"
+            body = try JSONEncoder().encode(StripeRequest(amount: amount, paymentMethod: "stripe"))
+        case .waffo(let amount, let payMethodIndex):
+            path = "/api/user/waffo/amount"
+            body = try JSONEncoder().encode(WaffoRequest(amount: amount, payMethodIndex: payMethodIndex))
+        case .creem:
+            throw APIError.invalidResponse
+        }
+
+        let request = try accountRequest(path: path, method: "POST", body: body)
+        let data = try await sendRaw(request: request)
+        let response = try JSONDecoder().decode(PaymentAmountResponse.self, from: data)
+        guard response.message.lowercased() == "success" else {
+            throw APIError.server(Self.paymentFailureMessage(from: data) ?? response.message)
+        }
+        guard let amount = Double(response.data), amount.isFinite, amount >= 0 else {
+            throw APIError.invalidResponse
+        }
+        return amount
     }
 
     private func accountRequest(
@@ -201,12 +231,6 @@ extension APIClient: AccountManagementClient {
         return request
     }
 
-    private func validatePaymentMessage(_ message: String, fallback: String?) throws {
-        guard message.lowercased() == "success" else {
-            throw APIError.server(fallback ?? (message.isEmpty ? "创建支付订单失败" : message))
-        }
-    }
-
     private static func validCheckoutURL(_ value: String?) -> URL? {
         guard let value,
               let url = URL(string: value),
@@ -216,10 +240,27 @@ extension APIClient: AccountManagementClient {
         else { return nil }
         return url
     }
+
+    private static func paymentFailureMessage(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = object["data"] as? String,
+              !message.isEmpty
+        else { return nil }
+        return message
+    }
 }
 
 private struct TokenKeyPayload: Decodable {
     let key: String
+}
+
+private struct PaymentMessageResponse: Decodable {
+    let message: String
+}
+
+private struct PaymentAmountResponse: Decodable {
+    let message: String
+    let data: String
 }
 
 private struct EpayRequest: Encodable {

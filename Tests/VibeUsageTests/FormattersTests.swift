@@ -27,4 +27,19 @@ struct FormattersTests {
     func formatsBillionScaleTokenCounts() {
         #expect(Formatters.formatNumber(12_900_000_000) == "12.9B")
     }
+
+    @Test
+    func formatsUnixAccountDatesWithoutDateFormatterAllocation() throws {
+        let timezone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+
+        #expect(Formatters.formatUnixDate(0, timeZone: timezone) == "1970-01-01")
+        #expect(Formatters.formatUnixDateTime(0, timeZone: timezone) == "1970-01-01 08:00")
+    }
+
+    @Test
+    func formatsPaymentMoneyUsingItsRealCurrency() {
+        #expect(Formatters.formatMoney(12.5, currency: "USD") == "$12.50")
+        #expect(Formatters.formatMoney(12.5, currency: "EUR") == "€12.50")
+        #expect(Formatters.formatMoney(12.5, currency: "JPY") == "JPY 12.50")
+    }
 }

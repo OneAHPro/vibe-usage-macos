@@ -108,6 +108,8 @@ struct DashboardShellView: View {
     @State private var selectedPage: DashboardPage = .usage
     @State private var openFilter: FilterDimension?
     @State private var expandedModelFamilies: Set<String> = []
+    @State private var tokenStore = TokenManagementStore()
+    @State private var walletStore = WalletManagementStore()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -126,6 +128,13 @@ struct DashboardShellView: View {
         }
         .onDisappear {
             appState.setActiveRefreshTarget(.none)
+        }
+        .onChange(of: appState.isConfigured) { _, isConfigured in
+            if !isConfigured {
+                tokenStore.reset()
+                walletStore.reset()
+                selectedPage = .usage
+            }
         }
     }
 
@@ -172,12 +181,15 @@ struct DashboardShellView: View {
             sidebarSectionTitle("账户")
                 .padding(.top, 22)
             sidebarItem("令牌管理", icon: "key.horizontal", selected: selectedPage == .tokens) {
+                openFilter = nil
                 selectedPage = .tokens
             }
             sidebarItem("钱包管理", icon: "wallet.pass", selected: selectedPage == .wallet) {
+                openFilter = nil
                 selectedPage = .wallet
             }
             sidebarItem("活动中心", icon: "gift", selected: selectedPage == .activity) {
+                openFilter = nil
                 selectedPage = .activity
             }
 
@@ -228,10 +240,18 @@ struct DashboardShellView: View {
                 LeaderboardView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .tokens:
-                TokenManagementView()
+                TokenManagementView(
+                    store: tokenStore,
+                    client: appState.accountManagementClient(),
+                    quotaPerUnit: appState.quotaPerUnit
+                )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .wallet:
-                WalletManagementView()
+                WalletManagementView(
+                    store: walletStore,
+                    client: appState.accountManagementClient(),
+                    quotaPerUnit: appState.quotaPerUnit
+                )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .activity:
                 ActivityCenterView()

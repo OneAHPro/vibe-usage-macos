@@ -61,6 +61,34 @@ struct PerformanceHotPathTests {
         #expect(records.contains("LazyVStack(spacing: 0)"))
     }
 
+    @Test
+    func accountPagesHaveNoPollingOrSensitiveRequestLogging() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let paths = [
+            "VibeUsage/Views/TokenManagementView.swift",
+            "VibeUsage/Views/WalletManagementView.swift",
+            "VibeUsage/Views/ActivityCenterView.swift",
+            "VibeUsage/Models/TokenManagementStore.swift",
+            "VibeUsage/Models/WalletManagementStore.swift",
+        ]
+        let combined = try paths.map { try source($0, under: repositoryRoot) }.joined()
+        let apiClient = try source("VibeUsage/Services/APIClient.swift", under: repositoryRoot)
+        let accountClient = try source(
+            "VibeUsage/Services/AccountManagementClient.swift",
+            under: repositoryRoot
+        )
+
+        #expect(!combined.contains("Timer.publish"))
+        #expect(!combined.contains("Task.sleep"))
+        #expect(!combined.contains("while true"))
+        #expect(!accountClient.contains("debugLog"))
+        #expect(!apiClient.contains("request.url?.absoluteString"))
+        #expect(apiClient.contains("request.url?.path"))
+    }
+
     private func source(_ path: String, under root: URL) throws -> String {
         try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
     }

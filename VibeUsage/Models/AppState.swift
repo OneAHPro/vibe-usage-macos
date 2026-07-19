@@ -411,6 +411,18 @@ final class AppState {
         clearRemoteSession()
     }
 
+    func accountManagementClient() -> (any AccountManagementClient)? {
+        guard let config, let userID = config.userID else { return nil }
+        return APIClient(
+            baseURL: config.apiUrl ?? AppConfig.defaultApiUrl,
+            userID: userID
+        )
+    }
+
+    func handleAccountAuthenticationFailure() {
+        clearRemoteSession()
+    }
+
     // MARK: - Sync
 
     func triggerSync() async {

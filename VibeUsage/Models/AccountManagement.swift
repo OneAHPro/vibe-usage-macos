@@ -263,3 +263,10 @@ enum PaymentCheckout: Equatable, Sendable {
     case url(URL)
     case form(action: URL, fields: [String: String])
 }
+
+enum PaymentRequest: Equatable, Sendable {
+    case epay(amount: Int64, paymentMethod: String)
+    case stripe(amount: Int64)
+    case creem(productID: String)
+    case waffo(amount: Int64, payMethodIndex: Int?)
+}

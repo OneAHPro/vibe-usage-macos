@@ -46,7 +46,7 @@ enum LoginOutcome: Equatable, Sendable {
     case requiresTwoFactor
 }
 
-private struct APIEnvelope<Payload: Decodable>: Decodable {
+struct APIEnvelope<Payload: Decodable>: Decodable {
     let success: Bool
     let message: String
     let data: Payload?
@@ -88,7 +88,7 @@ private struct LoginPayload: Decodable {
     }
 }
 
-private struct EmptyPayload: Decodable {}
+struct EmptyPayload: Decodable {}
 
 private struct RemoteStatus: Decodable, Sendable {
     let quotaPerUnit: Double
@@ -194,7 +194,7 @@ struct APIClient: Sendable {
         return 500_000
     }
 
-    private func send<Payload: Decodable>(
+    func send<Payload: Decodable>(
         path: String,
         method: String = "GET",
         body: Data? = nil,
@@ -214,7 +214,16 @@ struct APIClient: Sendable {
         return try await send(request: request)
     }
 
-    private func send<Payload: Decodable>(request: URLRequest) async throws -> APIEnvelope<Payload> {
+    func send<Payload: Decodable>(request: URLRequest) async throws -> APIEnvelope<Payload> {
+        let data = try await sendRaw(request: request)
+        let envelope = try JSONDecoder().decode(APIEnvelope<Payload>.self, from: data)
+        guard envelope.success else {
+            throw APIError.server(envelope.message.isEmpty ? "服务器请求失败" : envelope.message)
+        }
+        return envelope
+    }
+
+    func sendRaw(request: URLRequest) async throws -> Data {
         debugLog("[APIClient] \(request.httpMethod ?? "GET") \(request.url?.absoluteString ?? "")")
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -230,11 +239,7 @@ struct APIClient: Sendable {
             throw APIError.httpError(httpResponse.statusCode)
         }
 
-        let envelope = try JSONDecoder().decode(APIEnvelope<Payload>.self, from: data)
-        guard envelope.success else {
-            throw APIError.server(envelope.message.isEmpty ? "服务器请求失败" : envelope.message)
-        }
-        return envelope
+        return data
     }
 
     private static func retryAfterDate(

@@ -223,6 +223,148 @@ struct APIClientTests {
         #expect(leaderboard.tokenTotalTop.isEmpty)
     }
 
+    @Test
+    func tokenListAndSearchUseAuthenticatedPaginationContracts() async throws {
+        let recorder = TestRequestRecorder()
+        let session = makeSession { request in
+            let call = recorder.append(request)
+            #expect(request.value(forHTTPHeaderField: "New-Api-User") == "7")
+            let components = try #require(URLComponents(url: request.url!, resolvingAgainstBaseURL: false))
+            let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            if call == 1 {
+                #expect(request.url?.path == "/api/token")
+                #expect(query == ["p": "1", "size": "20"])
+            } else {
+                #expect(request.url?.path == "/api/token/search")
+                #expect(query["keyword"] == "Codex")
+                #expect(query["token"] == "abcd")
+                #expect(query["p"] == "2")
+                #expect(query["size"] == "20")
+            }
+            return response(
+                for: request,
+                body: #"{"success":true,"message":"","data":{"page":1,"page_size":20,"total":0,"items":[]}}"#
+            )
+        }
+        let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
+
+        _ = try await client.fetchTokens(page: 1, pageSize: 20)
+        _ = try await client.fetchTokens(
+            page: 2,
+            pageSize: 20,
+            keyword: "Codex",
+            tokenQuery: "abcd"
+        )
+
+        #expect(recorder.requests.count == 2)
+    }
+
+    @Test
+    func tokenMutationsUseExpectedMethodsBodiesAndPaths() async throws {
+        let recorder = TestRequestRecorder()
+        let session = makeSession { request in
+            _ = recorder.append(request)
+            if request.url?.path == "/api/token/9/key" {
+                return response(
+                    for: request,
+                    body: #"{"success":true,"message":"","data":{"key":"secret-key"}}"#
+                )
+            }
+            return response(for: request, body: #"{"success":true,"message":""}"#)
+        }
+        let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
+        let mutation = TokenMutation(
+            id: 9,
+            name: "Codex",
+            expiredTime: -1,
+            remainQuota: 1_000_000,
+            unlimitedQuota: false,
+            modelLimitsEnabled: true,
+            modelLimits: "gpt-5.6-sol",
+            allowIPs: "127.0.0.1",
+            group: "pro",
+            crossGroupRetry: true,
+            status: 1
+        )
+
+        try await client.createToken(mutation)
+        try await client.updateToken(mutation)
+        try await client.setTokenEnabled(id: 9, enabled: false)
+        let key = try await client.revealTokenKey(id: 9)
+        try await client.deleteToken(id: 9)
+
+        let requests = recorder.requests
+        #expect(requests.map(\.httpMethod) == ["POST", "PUT", "PUT", "POST", "DELETE"])
+        #expect(requests.map { $0.url?.path } == [
+            "/api/token", "/api/token", "/api/token", "/api/token/9/key", "/api/token/9",
+        ])
+        #expect(requests[2].url?.query == "status_only=true")
+        let statusBody = try requestBody(from: requests[2])
+        let statusJSON = try #require(JSONSerialization.jsonObject(with: statusBody) as? [String: Int])
+        #expect(statusJSON == ["id": 9, "status": 2])
+        #expect(key == "secret-key")
+    }
+
+    @Test
+    func walletEndpointsDecodeInfoAndHistory() async throws {
+        let recorder = TestRequestRecorder()
+        let session = makeSession { request in
+            let call = recorder.append(request)
+            #expect(request.value(forHTTPHeaderField: "New-Api-User") == "7")
+            if call == 1 {
+                #expect(request.url?.path == "/api/user/topup/info")
+                return response(
+                    for: request,
+                    body: #"{"success":true,"message":"","data":{"enable_online_topup":false,"enable_stripe_topup":false,"enable_creem_topup":false,"enable_waffo_topup":false,"enable_waffo_pancake_topup":false,"amount_options":[],"discount":{}}}"#
+                )
+            }
+            #expect(request.url?.path == "/api/user/topup/self")
+            #expect(request.url?.query?.contains("p=1") == true)
+            #expect(request.url?.query?.contains("page_size=20") == true)
+            return response(
+                for: request,
+                body: #"{"success":true,"message":"","data":{"page":1,"page_size":20,"total":0,"items":[]}}"#
+            )
+        }
+        let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
+
+        let info = try await client.fetchTopUpInfo()
+        let page = try await client.fetchTopUps(page: 1, pageSize: 20)
+
+        #expect(!info.enableOnlineTopUp)
+        #expect(page.items.isEmpty)
+    }
+
+    @Test
+    func paymentResponsesMapToValidatedExternalCheckouts() async throws {
+        let recorder = TestRequestRecorder()
+        let session = makeSession { request in
+            let call = recorder.append(request)
+            if call == 1 {
+                #expect(request.url?.path == "/api/user/pay")
+                return response(
+                    for: request,
+                    body: #"{"message":"success","data":{"pid":"1000","sign":"abc&123"},"url":"https://pay.example.com/submit"}"#
+                )
+            }
+            #expect(request.url?.path == "/api/user/stripe/pay")
+            return response(
+                for: request,
+                body: #"{"message":"success","data":{"pay_link":"https://checkout.stripe.com/c/pay"}}"#
+            )
+        }
+        let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
+
+        let epay = try await client.createPaymentCheckout(.epay(amount: 20, paymentMethod: "alipay"))
+        let stripe = try await client.createPaymentCheckout(.stripe(amount: 20))
+
+        #expect(epay == .form(
+            action: URL(string: "https://pay.example.com/submit")!,
+            fields: ["pid": "1000", "sign": "abc&123"]
+        ))
+        #expect(stripe == .url(URL(string: "https://checkout.stripe.com/c/pay")!))
+    }
+
     private func makeSession(
         handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> URLSession {
@@ -293,4 +435,23 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+}
+
+private final class TestRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [URLRequest] = []
+
+    @discardableResult
+    func append(_ request: URLRequest) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(request)
+        return storage.count
+    }
+
+    var requests: [URLRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
 }

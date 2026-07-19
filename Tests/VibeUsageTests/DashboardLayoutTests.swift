@@ -57,7 +57,51 @@ struct DashboardLayoutTests {
     @Test
     func sidebarPagesProvideInlineNavigationTitles() {
         #expect(DashboardPage.usage.title == "Vibe Usage")
+        #expect(DashboardPage.tokens.title == "令牌管理")
+        #expect(DashboardPage.wallet.title == "钱包管理")
+        #expect(DashboardPage.activity.title == "活动中心")
         #expect(DashboardPage.settings.title == "设置")
+    }
+
+    @Test
+    func sidebarProvidesNativeAccountPagesWithoutBackgroundRefresh() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let shell = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("VibeUsage/Views/DashboardShellView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(shell.contains("sidebarSectionTitle(\"账户\")"))
+        #expect(shell.contains("selectedPage = .tokens"))
+        #expect(shell.contains("selectedPage = .wallet"))
+        #expect(shell.contains("selectedPage = .activity"))
+        #expect(shell.contains("TokenManagementView()"))
+        #expect(shell.contains("WalletManagementView()"))
+        #expect(shell.contains("ActivityCenterView()"))
+        #expect(shell.contains("case .tokens, .wallet, .activity, .settings: .none"))
+    }
+
+    @Test
+    func activityCenterUsesAnHonestNativeEmptyState() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let activityURL = repositoryRoot.appendingPathComponent(
+            "VibeUsage/Views/ActivityCenterView.swift"
+        )
+
+        #expect(FileManager.default.fileExists(atPath: activityURL.path))
+        guard FileManager.default.fileExists(atPath: activityURL.path) else { return }
+
+        let activity = try String(contentsOf: activityURL, encoding: .utf8)
+        #expect(activity.contains("暂无活动"))
+        #expect(activity.contains("新活动上线后会在这里显示"))
+        #expect(!activity.contains("Timer"))
+        #expect(!activity.contains("URLSession"))
     }
 
     @Test
@@ -91,7 +135,7 @@ struct DashboardLayoutTests {
 
         #expect(shell.contains("private var remoteRefreshTarget: RemoteRefreshTarget"))
         #expect(shell.contains("appState.setActiveRefreshTarget(remoteRefreshTarget)"))
-        #expect(shell.contains("case .settings: .none"))
+        #expect(shell.contains("case .tokens, .wallet, .activity, .settings: .none"))
     }
 
     @Test

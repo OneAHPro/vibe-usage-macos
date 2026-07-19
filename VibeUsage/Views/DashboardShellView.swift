@@ -4,12 +4,18 @@ import SwiftUI
 enum DashboardPage: Equatable {
     case usage
     case leaderboard
+    case tokens
+    case wallet
+    case activity
     case settings
 
     var title: String {
         switch self {
         case .usage: "Vibe Usage"
         case .leaderboard: "排行榜"
+        case .tokens: "令牌管理"
+        case .wallet: "钱包管理"
+        case .activity: "活动中心"
         case .settings: "设置"
         }
     }
@@ -18,6 +24,9 @@ enum DashboardPage: Equatable {
         switch self {
         case .usage: "AI 使用与成本仪表盘"
         case .leaderboard: "new 系统实时用量排名"
+        case .tokens: "创建、管理与保护 API 访问令牌"
+        case .wallet: "查看余额、充值与资金记录"
+        case .activity: "查看 VibeCafé 最新活动"
         case .settings: "账号、远程数据与应用偏好"
         }
     }
@@ -124,7 +133,7 @@ struct DashboardShellView: View {
         switch selectedPage {
         case .usage: .usage
         case .leaderboard: .leaderboard
-        case .settings: .none
+        case .tokens, .wallet, .activity, .settings: .none
         }
     }
 
@@ -158,6 +167,18 @@ struct DashboardShellView: View {
             }
             sidebarItem("数据详情", icon: "doc.text.magnifyingglass") {
                 openURL("\(AppConfig.defaultApiUrl)/console/log")
+            }
+
+            sidebarSectionTitle("账户")
+                .padding(.top, 22)
+            sidebarItem("令牌管理", icon: "key.horizontal", selected: selectedPage == .tokens) {
+                selectedPage = .tokens
+            }
+            sidebarItem("钱包管理", icon: "wallet.pass", selected: selectedPage == .wallet) {
+                selectedPage = .wallet
+            }
+            sidebarItem("活动中心", icon: "gift", selected: selectedPage == .activity) {
+                selectedPage = .activity
             }
 
             sidebarSectionTitle("应用")
@@ -205,6 +226,15 @@ struct DashboardShellView: View {
                 usagePage
             case .leaderboard:
                 LeaderboardView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .tokens:
+                TokenManagementView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .wallet:
+                WalletManagementView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .activity:
+                ActivityCenterView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .settings:
                 SettingsView(embedded: true)

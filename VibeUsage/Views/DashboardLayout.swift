@@ -5,6 +5,11 @@ struct HeatmapCellTarget: Equatable {
     let hour: Int
 }
 
+struct DailyHeatmapCellTarget: Equatable {
+    let row: Int
+    let column: Int
+}
+
 enum DashboardLayout {
     static let sidebarWidth: CGFloat = 188
     static let contentSpacing: CGFloat = 12
@@ -51,6 +56,31 @@ enum DashboardLayout {
 
     static func dailyHeatmapLeadingColumnCount(dataWeekCount: Int) -> Int {
         max(dailyHeatmapColumnCount(dataWeekCount: dataWeekCount) - dataWeekCount, 0)
+    }
+
+    static func dailyHeatmapCellTarget(
+        at point: CGPoint,
+        cellSize: CGFloat,
+        columnCount: Int,
+        weekdayLabelWidth: CGFloat = 18,
+        columnSpacing: CGFloat = 4,
+        rowSpacing: CGFloat = 4
+    ) -> DailyHeatmapCellTarget? {
+        guard cellSize > 0, columnCount > 0 else { return nil }
+
+        let firstCellX = weekdayLabelWidth + columnSpacing
+        let localX = point.x - firstCellX
+        guard localX >= 0, point.y >= 0 else { return nil }
+
+        let columnStep = cellSize + columnSpacing
+        let rowStep = cellSize + rowSpacing
+        let column = Int(localX / columnStep)
+        let row = Int(point.y / rowStep)
+
+        guard (0..<columnCount).contains(column), (0..<7).contains(row) else { return nil }
+        guard localX - CGFloat(column) * columnStep < cellSize else { return nil }
+        guard point.y - CGFloat(row) * rowStep < cellSize else { return nil }
+        return DailyHeatmapCellTarget(row: row, column: column)
     }
 
     static func heatmapCellTarget(

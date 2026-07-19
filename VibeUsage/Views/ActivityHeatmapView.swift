@@ -112,6 +112,9 @@ private struct DailyCalendarHeatmapGrid: View {
     let heatmap: DailyActivityHeatmap
     let metric: HeatmapMetric
 
+    @State private var hoveredTarget: DailyHeatmapCellTarget?
+    @State private var scroll = ScrollWatcher()
+
     private let weekdayLabels = ["一", "二", "三", "四", "五", "六", "日"]
     private let rowSpacing: CGFloat = 4
     private let columnSpacing: CGFloat = 4
@@ -130,8 +133,9 @@ private struct DailyCalendarHeatmapGrid: View {
                 visibleWeekCount: visibleWeekCount
             )
             let gridWidth = weekdayLabelWidth
-                + CGFloat(max(visibleWeekCount - 1, 0)) * columnSpacing
+                + CGFloat(visibleWeekCount) * columnSpacing
                 + CGFloat(visibleWeekCount) * cellSize
+            let plotHeight = cellSize * 7 + rowSpacing * 6
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: columnSpacing) {
@@ -145,36 +149,95 @@ private struct DailyCalendarHeatmapGrid: View {
                     }
                 }
 
-                VStack(spacing: rowSpacing) {
-                    ForEach(0..<7, id: \.self) { weekdayIndex in
-                        HStack(spacing: columnSpacing) {
-                            Text(weekdayLabels[weekdayIndex])
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundStyle(AppTheme.tertiaryText)
-                                .frame(width: weekdayLabelWidth, alignment: .leading)
+                ZStack(alignment: .topLeading) {
+                    VStack(spacing: rowSpacing) {
+                        ForEach(0..<7, id: \.self) { weekdayIndex in
+                            HStack(spacing: columnSpacing) {
+                                Text(weekdayLabels[weekdayIndex])
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(AppTheme.tertiaryText)
+                                    .frame(width: weekdayLabelWidth, alignment: .leading)
 
-                            ForEach(0..<visibleWeekCount, id: \.self) { visibleWeekIndex in
-                                let weekIndex = visibleWeekIndex - leadingWeekCount
-                                if let cell = heatmap.cell(
-                                    weekdayIndex: weekdayIndex,
-                                    weekIndex: weekIndex
-                                ) {
-                                    RoundedRectangle(cornerRadius: 2.5)
-                                        .fill(cellColor(cell))
-                                        .frame(width: cellSize, height: cellSize)
-                                        .help(cellTooltip(cell))
-                                } else {
-                                    RoundedRectangle(cornerRadius: 2.5)
-                                        .fill(AppTheme.separator.opacity(0.18))
-                                        .frame(width: cellSize, height: cellSize)
+                                ForEach(0..<visibleWeekCount, id: \.self) { visibleWeekIndex in
+                                    let weekIndex = visibleWeekIndex - leadingWeekCount
+                                    if let cell = heatmap.cell(
+                                        weekdayIndex: weekdayIndex,
+                                        weekIndex: weekIndex
+                                    ) {
+                                        RoundedRectangle(cornerRadius: 2.5)
+                                            .fill(cellColor(cell))
+                                            .frame(width: cellSize, height: cellSize)
+                                    } else {
+                                        RoundedRectangle(cornerRadius: 2.5)
+                                            .fill(AppTheme.separator.opacity(0.18))
+                                            .frame(width: cellSize, height: cellSize)
+                                    }
                                 }
                             }
                         }
                     }
+
+                    GeometryReader { geometry in
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .allowsHitTesting(!scroll.isScrolling)
+                            .onContinuousHover(coordinateSpace: .local) { phase in
+                                switch phase {
+                                case .active(let point):
+                                    guard !scroll.isScrolling else { return }
+                                    let target = DashboardLayout.dailyHeatmapCellTarget(
+                                        at: point,
+                                        cellSize: cellSize,
+                                        columnCount: visibleWeekCount,
+                                        weekdayLabelWidth: weekdayLabelWidth,
+                                        columnSpacing: columnSpacing,
+                                        rowSpacing: rowSpacing
+                                    )
+                                    let dataCell = target.flatMap {
+                                        heatmap.cell(
+                                            weekdayIndex: $0.row,
+                                            weekIndex: $0.column - leadingWeekCount
+                                        )
+                                    }
+                                    let validTarget = dataCell?.isInRequestedRange == true ? target : nil
+                                    if hoveredTarget != validTarget { hoveredTarget = validTarget }
+                                case .ended:
+                                    if hoveredTarget != nil { hoveredTarget = nil }
+                                }
+                            }
+
+                        if let target = hoveredTarget,
+                           let cell = heatmap.cell(
+                               weekdayIndex: target.row,
+                               weekIndex: target.column - leadingWeekCount
+                           ) {
+                            let center = cellCenter(target, cellSize: cellSize)
+                            let horizontalInset = min(CGFloat(88), geometry.size.width / 2)
+                            let tooltipX = min(
+                                max(center.x, horizontalInset),
+                                max(horizontalInset, geometry.size.width - horizontalInset)
+                            )
+                            let tooltipY = center.y < 45
+                                ? min(center.y + 38, geometry.size.height - 24)
+                                : center.y - 34
+
+                            tooltip(cell)
+                                .position(x: tooltipX, y: tooltipY)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 }
+                .frame(width: gridWidth, height: plotHeight)
             }
             .frame(width: gridWidth)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+        .onAppear { scroll.start() }
+        .onDisappear { scroll.stop() }
+        .onChange(of: scroll.isScrolling) { _, scrolling in
+            if scrolling, hoveredTarget != nil {
+                hoveredTarget = nil
+            }
         }
     }
 
@@ -210,9 +273,38 @@ private struct DailyCalendarHeatmapGrid: View {
         return heatmapColor(metric: metric, intensity: heatmap.intensity(dayKey: cell.dayKey))
     }
 
-    private func cellTooltip(_ cell: DailyActivityCell) -> String {
-        guard cell.isInRequestedRange else { return cell.dayKey }
-        return "\(cell.dayKey)\n\(heatmapTooltipValue(metric: metric, value: cell.value))"
+    private func cellCenter(
+        _ target: DailyHeatmapCellTarget,
+        cellSize: CGFloat
+    ) -> CGPoint {
+        CGPoint(
+            x: weekdayLabelWidth
+                + columnSpacing
+                + CGFloat(target.column) * (cellSize + columnSpacing)
+                + cellSize / 2,
+            y: CGFloat(target.row) * (cellSize + rowSpacing) + cellSize / 2
+        )
+    }
+
+    private func tooltip(_ cell: DailyActivityCell) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(cell.dayKey)
+                .fontWeight(.semibold)
+                .foregroundStyle(AppTheme.primaryText)
+            Text(heatmapTooltipValue(metric: metric, value: cell.value))
+                .foregroundStyle(cell.value > 0
+                    ? (metric == .cost ? AppTheme.costAccent : AppTheme.secondaryText)
+                    : AppTheme.tertiaryText)
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(AppTheme.tooltipBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(AppTheme.separator, lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+        .fixedSize()
+        .allowsHitTesting(false)
     }
 }
 

@@ -289,6 +289,29 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func dailyHeatmapHoverMapsTheTrackingRegionToItsCell() {
+        let cellSize: CGFloat = 18
+
+        #expect(DashboardLayout.dailyHeatmapCellTarget(
+            at: CGPoint(x: 23, y: 1),
+            cellSize: cellSize,
+            columnCount: 24
+        ) == DailyHeatmapCellTarget(row: 0, column: 0))
+
+        #expect(DashboardLayout.dailyHeatmapCellTarget(
+            at: CGPoint(x: 545, y: 149),
+            cellSize: cellSize,
+            columnCount: 24
+        ) == DailyHeatmapCellTarget(row: 6, column: 23))
+
+        #expect(DashboardLayout.dailyHeatmapCellTarget(
+            at: CGPoint(x: 41, y: 8),
+            cellSize: cellSize,
+            columnCount: 24
+        ) == nil)
+    }
+
+    @Test
     func activityCardRendersTheDeclaredBucketGranularity() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -305,6 +328,11 @@ struct DashboardLayoutTests {
         #expect(view.contains("case .monthly(let heatmap):"))
         #expect(view.contains("DailyCalendarHeatmapGrid"))
         #expect(view.contains("MonthlyActivityHeatmapGrid"))
+        let dailyView = view.components(separatedBy: "private struct DailyCalendarHeatmapGrid")[1]
+            .components(separatedBy: "private struct MonthlyActivityHeatmapGrid")[0]
+        #expect(dailyView.contains(".onContinuousHover"))
+        #expect(dailyView.contains("dailyHeatmapCellTarget"))
+        #expect(!dailyView.contains(".help(cellTooltip(cell))"))
         #expect(!view.contains("let heatmap = appState.activityHeatmap(for: metric)"))
     }
 

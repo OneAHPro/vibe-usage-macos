@@ -6,9 +6,14 @@ import Observation
 final class WalletManagementStore {
     private(set) var user: AuthenticatedUser?
     private(set) var topUpInfo: TopUpInfo?
+    private(set) var plans: [SubscriptionPlan] = []
+    private(set) var subscriptions: [SubscriptionSummary] = []
+    private(set) var allSubscriptions: [SubscriptionSummary] = []
+    private(set) var billingPreference: BillingPreference = .subscriptionFirst
     private(set) var records: [TopUpRecord] = []
     private(set) var total = 0
     private(set) var hasLoaded = false
+    private(set) var hasLoadedFundingRecords = false
     private(set) var isLoading = false
     private(set) var isMutating = false
     private(set) var requiresAuthentication = false
@@ -28,6 +33,14 @@ final class WalletManagementStore {
 
     func refresh(client: any AccountManagementClient) async {
         await load(client: client)
+        if hasLoadedFundingRecords {
+            await loadRecords(client: client)
+        }
+    }
+
+    func loadFundingRecordsIfNeeded(client: any AccountManagementClient) async {
+        guard !hasLoadedFundingRecords else { return }
+        await loadRecords(client: client)
     }
 
     func goToPage(_ newPage: Int, client: any AccountManagementClient) async {
@@ -57,6 +70,47 @@ final class WalletManagementStore {
         } catch {
             record(error)
             return nil
+        }
+    }
+
+    func createSubscriptionCheckout(
+        _ request: SubscriptionPaymentRequest,
+        client: any AccountManagementClient
+    ) async -> PaymentCheckout? {
+        guard !isMutating else { return nil }
+        isMutating = true
+        defer { isMutating = false }
+        do {
+            let checkout = try await client.createSubscriptionCheckout(request)
+            errorMessage = nil
+            requiresAuthentication = false
+            checkoutMessage = "支付完成后请刷新订阅状态"
+            return checkout
+        } catch {
+            record(error)
+            return nil
+        }
+    }
+
+    func updateBillingPreference(
+        _ preference: BillingPreference,
+        client: any AccountManagementClient
+    ) async {
+        guard !isMutating, preference != billingPreference else { return }
+        isMutating = true
+        defer { isMutating = false }
+        do {
+            billingPreference = try await client.updateBillingPreference(preference)
+            errorMessage = nil
+            requiresAuthentication = false
+        } catch {
+            record(error)
+        }
+    }
+
+    func purchaseCount(for planID: Int) -> Int {
+        allSubscriptions.reduce(into: 0) { count, summary in
+            if summary.subscription.planID == planID { count += 1 }
         }
     }
 
@@ -97,10 +151,15 @@ final class WalletManagementStore {
     func reset() {
         user = nil
         topUpInfo = nil
+        plans = []
+        subscriptions = []
+        allSubscriptions = []
+        billingPreference = .subscriptionFirst
         records = []
         total = 0
         page = 1
         hasLoaded = false
+        hasLoadedFundingRecords = false
         isLoading = false
         isMutating = false
         requiresAuthentication = false
@@ -116,13 +175,15 @@ final class WalletManagementStore {
         do {
             let loadedUser = try await client.fetchCurrentUser()
             let loadedInfo = try await client.fetchTopUpInfo()
-            let loadedPage = try await client.fetchTopUps(page: page, pageSize: pageSize)
+            let loadedPlans = try await client.fetchSubscriptionPlans()
+            let loadedSubscriptions = try await client.fetchSubscriptionSelf()
             clearPaymentEstimate()
             user = loadedUser
             topUpInfo = loadedInfo
-            records = loadedPage.items
-            total = loadedPage.total
-            page = loadedPage.page
+            plans = loadedPlans.map(\.plan)
+            subscriptions = loadedSubscriptions.subscriptions
+            allSubscriptions = loadedSubscriptions.allSubscriptions
+            billingPreference = loadedSubscriptions.billingPreference
             hasLoaded = true
             errorMessage = nil
             requiresAuthentication = false
@@ -140,6 +201,7 @@ final class WalletManagementStore {
             records = loadedPage.items
             total = loadedPage.total
             page = loadedPage.page
+            hasLoadedFundingRecords = true
             errorMessage = nil
             requiresAuthentication = false
         } catch {

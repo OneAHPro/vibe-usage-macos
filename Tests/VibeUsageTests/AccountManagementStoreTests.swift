@@ -64,7 +64,7 @@ struct AccountManagementStoreTests {
     }
 
     @Test
-    func walletStoreLoadsItsThreeResourcesOnlyOnce() async {
+    func walletStoreLoadsSubscriptionOverviewOnceAndFundingRecordsLazily() async {
         let client = FakeAccountClient()
         let store = WalletManagementStore()
 
@@ -73,6 +73,14 @@ struct AccountManagementStoreTests {
 
         #expect(client.userCalls == 1)
         #expect(client.topUpInfoCalls == 1)
+        #expect(client.subscriptionPlanCalls == 1)
+        #expect(client.subscriptionSelfCalls == 1)
+        #expect(client.topUpPageCalls == 0)
+        #expect(store.plans.first?.title == "Pro")
+        #expect(store.billingPreference == .subscriptionFirst)
+
+        await store.loadFundingRecordsIfNeeded(client: client)
+        await store.loadFundingRecordsIfNeeded(client: client)
         #expect(client.topUpPageCalls == 1)
 
         await store.estimatePayment(.stripe(amount: 20), client: client)
@@ -81,7 +89,25 @@ struct AccountManagementStoreTests {
         #expect(store.estimatedPaymentAmount == nil)
         #expect(client.userCalls == 2)
         #expect(client.topUpInfoCalls == 2)
+        #expect(client.subscriptionPlanCalls == 2)
+        #expect(client.subscriptionSelfCalls == 2)
         #expect(client.topUpPageCalls == 2)
+    }
+
+    @Test
+    func walletStoreUpdatesPreferenceAndCreatesSubscriptionCheckout() async {
+        let client = FakeAccountClient()
+        let store = WalletManagementStore()
+        await store.loadIfNeeded(client: client)
+
+        await store.updateBillingPreference(.walletFirst, client: client)
+        #expect(store.billingPreference == .walletFirst)
+        #expect(client.preferenceCalls == 1)
+
+        let checkout = await store.createSubscriptionCheckout(.stripe(planID: 3), client: client)
+        #expect(checkout == .url(URL(string: "https://pay.example.com/subscription")!))
+        #expect(client.subscriptionCheckoutCalls == 1)
+        #expect(store.checkoutMessage == "支付完成后请刷新订阅状态")
     }
 }
 
@@ -93,6 +119,10 @@ private final class FakeAccountClient: AccountManagementClient {
     var userCalls = 0
     var topUpInfoCalls = 0
     var topUpPageCalls = 0
+    var subscriptionPlanCalls = 0
+    var subscriptionSelfCalls = 0
+    var preferenceCalls = 0
+    var subscriptionCheckoutCalls = 0
     var revealCalls = 0
     var lastKeyword: String?
     var shouldFailTokenLoad = false
@@ -155,6 +185,30 @@ private final class FakeAccountClient: AccountManagementClient {
         .url(URL(string: "https://pay.example.com")!)
     }
 
+    func fetchSubscriptionPlans() async throws -> [SubscriptionPlanItem] {
+        subscriptionPlanCalls += 1
+        return [SubscriptionPlanItem(plan: Self.plan)]
+    }
+
+    func fetchSubscriptionSelf() async throws -> SubscriptionSelf {
+        subscriptionSelfCalls += 1
+        return SubscriptionSelf(
+            billingPreference: .subscriptionFirst,
+            subscriptions: [],
+            allSubscriptions: []
+        )
+    }
+
+    func updateBillingPreference(_ preference: BillingPreference) async throws -> BillingPreference {
+        preferenceCalls += 1
+        return preference
+    }
+
+    func createSubscriptionCheckout(_ request: SubscriptionPaymentRequest) async throws -> PaymentCheckout {
+        subscriptionCheckoutCalls += 1
+        return .url(URL(string: "https://pay.example.com/subscription")!)
+    }
+
     private static let token = TokenRecord(
         id: 9,
         userID: 7,
@@ -172,5 +226,27 @@ private final class FakeAccountClient: AccountManagementClient {
         usedQuota: 0,
         group: "pro",
         crossGroupRetry: false
+    )
+
+    private static let plan = SubscriptionPlan(
+        id: 3,
+        title: "Pro",
+        subtitle: "",
+        priceAmount: 29.9,
+        currency: "USD",
+        durationUnit: "month",
+        durationValue: 1,
+        customSeconds: 0,
+        enabled: true,
+        sortOrder: 10,
+        stripePriceID: "price_123",
+        creemProductID: "product_123",
+        maxPurchasePerUser: 2,
+        upgradeGroup: "pro",
+        totalAmount: 100_000_000,
+        quotaResetPeriod: "monthly",
+        quotaResetCustomSeconds: 0,
+        createdAt: 0,
+        updatedAt: 0
     )
 }

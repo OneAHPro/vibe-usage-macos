@@ -253,6 +253,195 @@ struct TopUpPage: Decodable, Equatable, Sendable {
     }
 }
 
+enum BillingPreference: String, CaseIterable, Identifiable, Codable, Sendable {
+    case subscriptionFirst = "subscription_first"
+    case walletFirst = "wallet_first"
+    case subscriptionOnly = "subscription_only"
+    case walletOnly = "wallet_only"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .subscriptionFirst: "优先订阅"
+        case .walletFirst: "优先钱包"
+        case .subscriptionOnly: "仅用订阅"
+        case .walletOnly: "仅用钱包"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        self = BillingPreference(rawValue: value) ?? .subscriptionFirst
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+struct SubscriptionPlan: Decodable, Identifiable, Equatable, Sendable {
+    let id: Int
+    let title: String
+    let subtitle: String
+    let priceAmount: Double
+    let currency: String
+    let durationUnit: String
+    let durationValue: Int
+    let customSeconds: Int64
+    let enabled: Bool
+    let sortOrder: Int
+    let stripePriceID: String
+    let creemProductID: String
+    let maxPurchasePerUser: Int
+    let upgradeGroup: String
+    let totalAmount: Int64
+    let quotaResetPeriod: String
+    let quotaResetCustomSeconds: Int64
+    let createdAt: Int64
+    let updatedAt: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, subtitle, currency, enabled
+        case priceAmount = "price_amount"
+        case durationUnit = "duration_unit"
+        case durationValue = "duration_value"
+        case customSeconds = "custom_seconds"
+        case sortOrder = "sort_order"
+        case stripePriceID = "stripe_price_id"
+        case creemProductID = "creem_product_id"
+        case maxPurchasePerUser = "max_purchase_per_user"
+        case upgradeGroup = "upgrade_group"
+        case totalAmount = "total_amount"
+        case quotaResetPeriod = "quota_reset_period"
+        case quotaResetCustomSeconds = "quota_reset_custom_seconds"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    var priceLabel: String { Formatters.formatMoney(priceAmount, currency: currency) }
+
+    var durationLabel: String {
+        switch durationUnit {
+        case "year": "\(max(durationValue, 1)) 年"
+        case "month": "\(max(durationValue, 1)) 个月"
+        case "day": "\(max(durationValue, 1)) 天"
+        case "hour": "\(max(durationValue, 1)) 小时"
+        case "custom": Self.intervalLabel(customSeconds)
+        default: "\(max(durationValue, 1)) \(durationUnit)"
+        }
+    }
+
+    var resetLabel: String {
+        switch quotaResetPeriod {
+        case "daily": "每天"
+        case "weekly": "每周"
+        case "monthly": "每月"
+        case "custom": "每 \(Self.intervalLabel(quotaResetCustomSeconds))"
+        default: "不重置"
+        }
+    }
+
+    func quotaLabel(quotaPerUnit: Double) -> String {
+        guard totalAmount > 0 else { return "不限额度" }
+        return Self.quotaLabel(totalAmount, quotaPerUnit: quotaPerUnit)
+    }
+
+    static func quotaLabel(_ amount: Int64, quotaPerUnit: Double) -> String {
+        guard quotaPerUnit.isFinite, quotaPerUnit > 0 else { return "$0.00" }
+        return Formatters.formatCost(Double(max(amount, 0)) / quotaPerUnit)
+    }
+
+    private static func intervalLabel(_ seconds: Int64) -> String {
+        let safe = max(seconds, 0)
+        if safe >= 86_400, safe % 86_400 == 0 { return "\(safe / 86_400) 天" }
+        if safe >= 3_600, safe % 3_600 == 0 { return "\(safe / 3_600) 小时" }
+        if safe >= 60, safe % 60 == 0 { return "\(safe / 60) 分钟" }
+        return "\(safe) 秒"
+    }
+}
+
+struct SubscriptionPlanItem: Decodable, Identifiable, Equatable, Sendable {
+    let plan: SubscriptionPlan
+    var id: Int { plan.id }
+}
+
+struct UserSubscription: Decodable, Identifiable, Equatable, Sendable {
+    let id: Int
+    let userID: Int
+    let planID: Int
+    let amountTotal: Int64
+    let amountUsed: Int64
+    let startTime: Int64
+    let endTime: Int64
+    let status: String
+    let source: String
+    let lastResetTime: Int64
+    let nextResetTime: Int64
+    let upgradeGroup: String
+    let previousUserGroup: String
+    let createdAt: Int64
+    let updatedAt: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case id, status, source
+        case userID = "user_id"
+        case planID = "plan_id"
+        case amountTotal = "amount_total"
+        case amountUsed = "amount_used"
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case lastResetTime = "last_reset_time"
+        case nextResetTime = "next_reset_time"
+        case upgradeGroup = "upgrade_group"
+        case previousUserGroup = "prev_user_group"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    var statusLabel: String {
+        switch status.lowercased() {
+        case "active": "生效中"
+        case "expired": "已过期"
+        case "cancelled", "canceled": "已作废"
+        default: "未知"
+        }
+    }
+}
+
+struct SubscriptionSummary: Decodable, Identifiable, Equatable, Sendable {
+    let subscription: UserSubscription
+    let plan: SubscriptionPlan?
+
+    var id: Int { subscription.id }
+    var remainingAmount: Int64 { max(subscription.amountTotal - subscription.amountUsed, 0) }
+    var usageFraction: Double {
+        guard subscription.amountTotal > 0 else { return 0 }
+        return min(max(Double(subscription.amountUsed) / Double(subscription.amountTotal), 0), 1)
+    }
+}
+
+struct SubscriptionSelf: Decodable, Equatable, Sendable {
+    let billingPreference: BillingPreference
+    let subscriptions: [SubscriptionSummary]
+    let allSubscriptions: [SubscriptionSummary]
+
+    enum CodingKeys: String, CodingKey {
+        case billingPreference = "billing_preference"
+        case subscriptions
+        case allSubscriptions = "all_subscriptions"
+    }
+}
+
+struct BillingPreferencePayload: Decodable, Equatable, Sendable {
+    let billingPreference: BillingPreference
+
+    enum CodingKeys: String, CodingKey {
+        case billingPreference = "billing_preference"
+    }
+}
+
 enum PaymentCheckout: Equatable, Sendable {
     case url(URL)
     case form(action: URL, fields: [String: String])
@@ -263,6 +452,18 @@ enum PaymentRequest: Equatable, Sendable {
     case stripe(amount: Int64)
     case creem(productID: String)
     case waffo(amount: Int64, payMethodIndex: Int?)
+}
+
+enum SubscriptionPaymentRequest: Equatable, Sendable {
+    case epay(planID: Int, paymentMethod: String)
+    case stripe(planID: Int)
+    case creem(planID: Int)
+
+    var planID: Int {
+        switch self {
+        case .epay(let planID, _), .stripe(let planID), .creem(let planID): planID
+        }
+    }
 }
 
 enum TokenQuotaInput {

@@ -18,6 +18,10 @@ protocol AccountManagementClient {
     func fetchTopUps(page: Int, pageSize: Int) async throws -> TopUpPage
     func fetchPaymentAmount(_ request: PaymentRequest) async throws -> Double
     func createPaymentCheckout(_ request: PaymentRequest) async throws -> PaymentCheckout
+    func fetchSubscriptionPlans() async throws -> [SubscriptionPlanItem]
+    func fetchSubscriptionSelf() async throws -> SubscriptionSelf
+    func updateBillingPreference(_ preference: BillingPreference) async throws -> BillingPreference
+    func createSubscriptionCheckout(_ request: SubscriptionPaymentRequest) async throws -> PaymentCheckout
 }
 
 extension AccountManagementClient {
@@ -121,6 +125,72 @@ extension APIClient: AccountManagementClient {
         let envelope: APIEnvelope<TopUpPage> = try await send(request: request)
         guard let page = envelope.data else { throw APIError.invalidResponse }
         return page
+    }
+
+    func fetchSubscriptionPlans() async throws -> [SubscriptionPlanItem] {
+        let envelope: APIEnvelope<[SubscriptionPlanItem]> = try await send(path: "/api/subscription/plans")
+        return envelope.data ?? []
+    }
+
+    func fetchSubscriptionSelf() async throws -> SubscriptionSelf {
+        let envelope: APIEnvelope<SubscriptionSelf> = try await send(path: "/api/subscription/self")
+        guard let value = envelope.data else { throw APIError.invalidResponse }
+        return value
+    }
+
+    func updateBillingPreference(_ preference: BillingPreference) async throws -> BillingPreference {
+        let body = try JSONEncoder().encode(BillingPreferenceRequest(billingPreference: preference))
+        let envelope: APIEnvelope<BillingPreferencePayload> = try await send(
+            path: "/api/subscription/self/preference",
+            method: "PUT",
+            body: body
+        )
+        guard let value = envelope.data?.billingPreference else { throw APIError.invalidResponse }
+        return value
+    }
+
+    func createSubscriptionCheckout(_ subscriptionRequest: SubscriptionPaymentRequest) async throws -> PaymentCheckout {
+        let path: String
+        let body: Data
+        switch subscriptionRequest {
+        case .epay(let planID, let paymentMethod):
+            path = "/api/subscription/epay/pay"
+            body = try JSONEncoder().encode(SubscriptionEpayRequest(planID: planID, paymentMethod: paymentMethod))
+        case .stripe(let planID):
+            path = "/api/subscription/stripe/pay"
+            body = try JSONEncoder().encode(SubscriptionPlanRequest(planID: planID))
+        case .creem(let planID):
+            path = "/api/subscription/creem/pay"
+            body = try JSONEncoder().encode(SubscriptionPlanRequest(planID: planID))
+        }
+
+        let request = try accountRequest(path: path, method: "POST", body: body)
+        let data = try await sendRaw(request: request)
+        let status = try JSONDecoder().decode(PaymentMessageResponse.self, from: data)
+        guard status.message.lowercased() == "success" else {
+            throw APIError.server(Self.paymentFailureMessage(from: data) ?? status.message)
+        }
+
+        switch subscriptionRequest {
+        case .epay:
+            let response = try JSONDecoder().decode(EpayResponse.self, from: data)
+            guard let action = Self.validCheckoutURL(response.url), let fields = response.data else {
+                throw APIError.invalidResponse
+            }
+            return .form(action: action, fields: fields)
+        case .stripe:
+            let response = try JSONDecoder().decode(StripeResponse.self, from: data)
+            guard let url = Self.validCheckoutURL(response.data?.payLink) else {
+                throw APIError.invalidResponse
+            }
+            return .url(url)
+        case .creem:
+            let response = try JSONDecoder().decode(CreemResponse.self, from: data)
+            guard let url = Self.validCheckoutURL(response.data?.checkoutURL) else {
+                throw APIError.invalidResponse
+            }
+            return .url(url)
+        }
     }
 
     func createPaymentCheckout(_ paymentRequest: PaymentRequest) async throws -> PaymentCheckout {
@@ -300,6 +370,32 @@ private struct WaffoRequest: Encodable {
     enum CodingKeys: String, CodingKey {
         case amount
         case payMethodIndex = "pay_method_index"
+    }
+}
+
+private struct BillingPreferenceRequest: Encodable {
+    let billingPreference: BillingPreference
+
+    enum CodingKeys: String, CodingKey {
+        case billingPreference = "billing_preference"
+    }
+}
+
+private struct SubscriptionPlanRequest: Encodable {
+    let planID: Int
+
+    enum CodingKeys: String, CodingKey {
+        case planID = "plan_id"
+    }
+}
+
+private struct SubscriptionEpayRequest: Encodable {
+    let planID: Int
+    let paymentMethod: String
+
+    enum CodingKeys: String, CodingKey {
+        case planID = "plan_id"
+        case paymentMethod = "payment_method"
     }
 }
 

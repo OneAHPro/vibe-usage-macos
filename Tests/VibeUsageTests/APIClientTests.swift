@@ -336,6 +336,64 @@ struct APIClientTests {
     }
 
     @Test
+    func subscriptionEndpointsUseAuthenticatedProductionContracts() async throws {
+        let recorder = TestRequestRecorder()
+        let plan = #"{"id":3,"title":"Pro","subtitle":"","price_amount":29.9,"currency":"USD","duration_unit":"month","duration_value":1,"custom_seconds":0,"enabled":true,"sort_order":10,"stripe_price_id":"price_123","creem_product_id":"prod_123","max_purchase_per_user":2,"upgrade_group":"pro","total_amount":100000000,"quota_reset_period":"monthly","quota_reset_custom_seconds":0,"created_at":1720000000,"updated_at":1720000100}"#
+        let session = makeSession { request in
+            _ = recorder.append(request)
+            #expect(request.value(forHTTPHeaderField: "New-Api-User") == "7")
+            switch request.url?.path {
+            case "/api/subscription/plans":
+                return response(for: request, body: "{\"success\":true,\"message\":\"\",\"data\":[{\"plan\":\(plan)}]}")
+            case "/api/subscription/self":
+                return response(for: request, body: #"{"success":true,"message":"","data":{"billing_preference":"subscription_first","subscriptions":[],"all_subscriptions":[]}}"#)
+            case "/api/subscription/self/preference":
+                return response(for: request, body: #"{"success":true,"message":"","data":{"billing_preference":"wallet_first"}}"#)
+            case "/api/subscription/stripe/pay":
+                return response(for: request, body: #"{"message":"success","data":{"pay_link":"https://checkout.stripe.com/sub"}}"#)
+            case "/api/subscription/creem/pay":
+                return response(for: request, body: #"{"message":"success","data":{"checkout_url":"https://checkout.creem.io/sub"}}"#)
+            case "/api/subscription/epay/pay":
+                return response(for: request, body: #"{"message":"success","data":{"pid":"1000"},"url":"https://pay.example.com/sub"}"#)
+            default:
+                Issue.record("Unexpected subscription path: \(request.url?.path ?? "nil")")
+                return response(for: request, body: #"{"success":false,"message":"unexpected"}"#)
+            }
+        }
+        let client = APIClient(baseURL: "https://api.anhepro.com", userID: 7, session: session)
+
+        let plans = try await client.fetchSubscriptionPlans()
+        let current = try await client.fetchSubscriptionSelf()
+        let updated = try await client.updateBillingPreference(.walletFirst)
+        let stripe = try await client.createSubscriptionCheckout(.stripe(planID: 3))
+        let creem = try await client.createSubscriptionCheckout(.creem(planID: 3))
+        let epay = try await client.createSubscriptionCheckout(.epay(planID: 3, paymentMethod: "alipay"))
+
+        #expect(plans.first?.plan.title == "Pro")
+        #expect(current.billingPreference == .subscriptionFirst)
+        #expect(updated == .walletFirst)
+        #expect(stripe == .url(URL(string: "https://checkout.stripe.com/sub")!))
+        #expect(creem == .url(URL(string: "https://checkout.creem.io/sub")!))
+        #expect(epay == .form(action: URL(string: "https://pay.example.com/sub")!, fields: ["pid": "1000"]))
+        #expect(recorder.requests.map { $0.url?.path } == [
+            "/api/subscription/plans",
+            "/api/subscription/self",
+            "/api/subscription/self/preference",
+            "/api/subscription/stripe/pay",
+            "/api/subscription/creem/pay",
+            "/api/subscription/epay/pay",
+        ])
+        #expect(recorder.requests.map(\.httpMethod) == ["GET", "GET", "PUT", "POST", "POST", "POST"])
+
+        let preferenceBody = try requestBody(from: recorder.requests[2])
+        let preferenceJSON = try #require(JSONSerialization.jsonObject(with: preferenceBody) as? [String: String])
+        #expect(preferenceJSON["billing_preference"] == "wallet_first")
+        let stripeBody = try requestBody(from: recorder.requests[3])
+        let stripeJSON = try #require(JSONSerialization.jsonObject(with: stripeBody) as? [String: Int])
+        #expect(stripeJSON["plan_id"] == 3)
+    }
+
+    @Test
     func paymentResponsesMapToValidatedExternalCheckouts() async throws {
         let recorder = TestRequestRecorder()
         let session = makeSession { request in

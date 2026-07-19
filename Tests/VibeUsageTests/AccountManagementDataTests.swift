@@ -98,6 +98,61 @@ struct AccountManagementDataTests {
     }
 
     @Test
+    func subscriptionPlansAndCurrentSubscriptionDecodeProductionPayloads() throws {
+        let planJSON = #"{"id":3,"title":"Pro","subtitle":"高并发模型权益","price_amount":29.9,"currency":"USD","duration_unit":"month","duration_value":1,"custom_seconds":0,"enabled":true,"sort_order":10,"stripe_price_id":"price_123","creem_product_id":"prod_123","max_purchase_per_user":2,"upgrade_group":"pro","total_amount":100000000,"quota_reset_period":"monthly","quota_reset_custom_seconds":0,"created_at":1720000000,"updated_at":1720000100}"#
+        let plans = try JSONDecoder().decode(
+            [SubscriptionPlanItem].self,
+            from: Data("[{\"plan\":\(planJSON)}]".utf8)
+        )
+        let current = try JSONDecoder().decode(
+            SubscriptionSelf.self,
+            from: Data(#"{"billing_preference":"subscription_first","subscriptions":[{"subscription":{"id":9,"user_id":7,"plan_id":3,"amount_total":100000000,"amount_used":25000000,"start_time":1720000000,"end_time":1751536000,"status":"active","source":"order","last_reset_time":1720000000,"next_reset_time":1722592000,"upgrade_group":"pro","prev_user_group":"","created_at":1720000000,"updated_at":1720000100},"plan":\#(planJSON)}],"all_subscriptions":[]}"#.utf8)
+        )
+
+        let plan = try #require(plans.first?.plan)
+        let subscription = try #require(current.subscriptions.first)
+
+        #expect(plan.durationLabel == "1 个月")
+        #expect(plan.resetLabel == "每月")
+        #expect(plan.quotaLabel(quotaPerUnit: 500_000) == "$200.00")
+        #expect(plan.priceLabel == "$29.90")
+        #expect(current.billingPreference == .subscriptionFirst)
+        #expect(subscription.remainingAmount == 75_000_000)
+        #expect(subscription.usageFraction == 0.25)
+        #expect(subscription.subscription.statusLabel == "生效中")
+    }
+
+    @Test
+    func subscriptionFormattingHandlesUnlimitedAndCustomDurations() {
+        let plan = SubscriptionPlan(
+            id: 4,
+            title: "Flexible",
+            subtitle: "",
+            priceAmount: 0,
+            currency: "USD",
+            durationUnit: "custom",
+            durationValue: 1,
+            customSeconds: 172_800,
+            enabled: true,
+            sortOrder: 0,
+            stripePriceID: "",
+            creemProductID: "",
+            maxPurchasePerUser: 0,
+            upgradeGroup: "",
+            totalAmount: 0,
+            quotaResetPeriod: "custom",
+            quotaResetCustomSeconds: 3_600,
+            createdAt: 0,
+            updatedAt: 0
+        )
+
+        #expect(plan.durationLabel == "2 天")
+        #expect(plan.resetLabel == "每 1 小时")
+        #expect(plan.quotaLabel(quotaPerUnit: 500_000) == "不限额度")
+        #expect(BillingPreference.walletOnly.label == "仅用钱包")
+    }
+
+    @Test
     func tokenQuotaConversionRejectsNonFiniteAndOverflowingInput() {
         #expect(TokenQuotaInput.quota(dollars: "10", quotaPerUnit: 500_000, unlimited: false) == 5_000_000)
         #expect(TokenQuotaInput.quota(dollars: "1e999", quotaPerUnit: 500_000, unlimited: false) == nil)

@@ -131,7 +131,7 @@ struct DashboardLayoutTests {
     }
 
     @Test
-    func walletManagementUsesNativeSummaryRechargeAndHistory() throws {
+    func walletManagementUsesNativeSubscriptionRechargeAndFundingSections() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -140,10 +140,21 @@ struct DashboardLayoutTests {
             contentsOf: root.appendingPathComponent("VibeUsage/Views/WalletManagementView.swift"),
             encoding: .utf8
         )
+        let purchaseSheet = try String(
+            contentsOf: root.appendingPathComponent("VibeUsage/Views/SubscriptionPurchaseSheet.swift"),
+            encoding: .utf8
+        )
 
         #expect(view.contains("当前余额"))
-        #expect(view.contains("历史消耗"))
-        #expect(view.contains("请求次数"))
+        #expect(!view.contains("历史消耗"))
+        #expect(!view.contains("请求次数"))
+        #expect(view.contains("订阅套餐"))
+        #expect(view.contains("余额充值"))
+        #expect(view.contains("资金记录"))
+        #expect(view.contains("当前订阅"))
+        #expect(view.contains("可选套餐"))
+        #expect(view.contains("SubscriptionPurchaseSheet"))
+        #expect(view.contains("loadFundingRecordsIfNeeded"))
         #expect(view.contains("在线充值"))
         #expect(view.contains("预计支付金额"))
         #expect(view.contains("计算实付"))
@@ -153,8 +164,11 @@ struct DashboardLayoutTests {
         #expect(view.contains("product.quota"))
         #expect(view.contains("充值记录"))
         #expect(view.contains("ExternalPaymentLauncher"))
+        #expect(purchaseSheet.contains("选择支付方式"))
+        #expect(purchaseSheet.contains("createSubscriptionCheckout"))
         #expect(!view.contains("Timer"))
         #expect(!view.contains("WebView"))
+        #expect(!purchaseSheet.contains("WebView"))
     }
 
     @Test

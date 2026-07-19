@@ -70,6 +70,7 @@ struct PerformanceHotPathTests {
         let paths = [
             "VibeUsage/Views/TokenManagementView.swift",
             "VibeUsage/Views/WalletManagementView.swift",
+            "VibeUsage/Views/SubscriptionPurchaseSheet.swift",
             "VibeUsage/Views/ActivityCenterView.swift",
             "VibeUsage/Models/TokenManagementStore.swift",
             "VibeUsage/Models/WalletManagementStore.swift",

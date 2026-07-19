@@ -72,6 +72,50 @@ struct AppStateRangeTests {
     }
 
     @Test
+    func applyingCoverageChangesActivityPresentation() {
+        let state = AppState()
+        let hourlyCoverage = UsageCoverage(
+            requestedStart: "2026-07-12T00:00:00Z",
+            requestedEnd: "2026-07-19T00:00:00Z",
+            dataStart: nil,
+            dataEnd: nil,
+            complete: true,
+            granularity: .hour
+        )
+        let dailyCoverage = UsageCoverage(
+            requestedStart: "2026-06-19T00:00:00Z",
+            requestedEnd: "2026-07-19T00:00:00Z",
+            dataStart: nil,
+            dataEnd: nil,
+            complete: true,
+            granularity: .day
+        )
+
+        state.applyUsageResponse(
+            UsageResponse(
+                buckets: [],
+                sessions: [],
+                coverage: hourlyCoverage,
+                hasAnyData: false
+            ),
+            for: .sevenDays
+        )
+        #expect(state.activityPresentation(for: .token).title == "分时活跃")
+
+        state.applyUsageResponse(
+            UsageResponse(
+                buckets: [],
+                sessions: [],
+                coverage: dailyCoverage,
+                hasAnyData: false
+            ),
+            for: .thirtyDays
+        )
+        #expect(state.activityPresentation(for: .token).title == "每日活跃")
+        #expect(state.usageCoverage == dailyCoverage)
+    }
+
+    @Test
     func allHistoryUsesExplicitLoadingCopy() {
         let state = AppState()
         state.timeRange = .all

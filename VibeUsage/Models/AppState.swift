@@ -102,6 +102,7 @@ final class AppState {
     private struct ActivityHeatmapCacheKey: Equatable {
         let dashboard: DashboardDerivedDataKey
         let metric: HeatmapMetric
+        let granularity: UsageGranularity?
     }
 
     // MARK: - Sync State
@@ -114,6 +115,7 @@ final class AppState {
     var heatmapBuckets: [UsageBucket] = []
     var sessions: [UsageSession] = []
     var recentRequests: [UsageRequestRecord]?
+    var usageCoverage: UsageCoverage?
     var hasAnyData: Bool = false
     var isLoadingData: Bool = false
     var hasLoadedUsageData: Bool = false
@@ -209,12 +211,27 @@ final class AppState {
         dashboardData.sessions
     }
 
-    func activityHeatmap(for metric: HeatmapMetric) -> ActivityHeatmap {
+    func activityPresentation(for metric: HeatmapMetric) -> ActivityPresentation {
         let dashboardKey = dashboardDerivedDataKey
-        let key = ActivityHeatmapCacheKey(dashboard: dashboardKey, metric: metric)
+        let key = ActivityHeatmapCacheKey(
+            dashboard: dashboardKey,
+            metric: metric,
+            granularity: usageCoverage?.granularity
+        )
         return activityHeatmapMemoizer.value(for: key) {
-            ActivityHeatmap(buckets: dashboardData.buckets, metric: metric)
+            ActivityPresentation.make(
+                buckets: dashboardData.buckets,
+                coverage: usageCoverage,
+                metric: metric
+            )
         }
+    }
+
+    func activityHeatmap(for metric: HeatmapMetric) -> ActivityHeatmap {
+        guard case .hourly(let heatmap) = activityPresentation(for: metric) else {
+            return ActivityHeatmap(buckets: [], metric: metric)
+        }
+        return heatmap
     }
 
     // MARK: - Config
@@ -285,7 +302,7 @@ final class AppState {
     private let dashboardDataMemoizer = SingleEntryMemoizer<DashboardDerivedDataKey, DashboardData>()
 
     @ObservationIgnored
-    private let activityHeatmapMemoizer = SingleEntryMemoizer<ActivityHeatmapCacheKey, ActivityHeatmap>()
+    private let activityHeatmapMemoizer = SingleEntryMemoizer<ActivityHeatmapCacheKey, ActivityPresentation>()
 
     @ObservationIgnored
     private lazy var visibleRefreshCoordinator = VisibleRefreshCoordinator(
@@ -521,6 +538,7 @@ final class AppState {
             buckets = response.buckets
             sessions = response.sessions ?? []
             recentRequests = response.recentRequests
+            usageCoverage = response.coverage
             hasAnyData = response.hasAnyData
             heatmapBuckets = response.buckets
             loadedTimeRange = range
@@ -747,6 +765,7 @@ final class AppState {
         heatmapBuckets = []
         sessions = []
         recentRequests = nil
+        usageCoverage = nil
         timeRange = .oneDay
         loadedTimeRange = .oneDay
         hasAnyData = false

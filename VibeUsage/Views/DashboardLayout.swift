@@ -10,6 +10,11 @@ struct DailyHeatmapCellTarget: Equatable {
     let column: Int
 }
 
+struct MonthlyHeatmapCellTarget: Equatable {
+    let row: Int
+    let column: Int
+}
+
 enum DashboardLayout {
     static let sidebarWidth: CGFloat = 188
     static let contentSpacing: CGFloat = 12
@@ -81,6 +86,31 @@ enum DashboardLayout {
         guard localX - CGFloat(column) * columnStep < cellSize else { return nil }
         guard point.y - CGFloat(row) * rowStep < cellSize else { return nil }
         return DailyHeatmapCellTarget(row: row, column: column)
+    }
+
+    static func monthlyHeatmapCellTarget(
+        at point: CGPoint,
+        cellSize: CGFloat,
+        rowCount: Int,
+        yearLabelWidth: CGFloat = 34,
+        columnSpacing: CGFloat = 5,
+        rowSpacing: CGFloat = 7
+    ) -> MonthlyHeatmapCellTarget? {
+        guard cellSize > 0, rowCount > 0 else { return nil }
+
+        let firstCellX = yearLabelWidth + columnSpacing
+        let localX = point.x - firstCellX
+        guard localX >= 0, point.y >= 0 else { return nil }
+
+        let columnStep = cellSize + columnSpacing
+        let rowStep = cellSize + rowSpacing
+        let column = Int(localX / columnStep)
+        let row = Int(point.y / rowStep)
+
+        guard (0..<12).contains(column), (0..<rowCount).contains(row) else { return nil }
+        guard localX - CGFloat(column) * columnStep < cellSize else { return nil }
+        guard point.y - CGFloat(row) * rowStep < cellSize else { return nil }
+        return MonthlyHeatmapCellTarget(row: row, column: column)
     }
 
     static func heatmapCellTarget(

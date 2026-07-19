@@ -249,23 +249,7 @@ private struct DailyCalendarHeatmapGrid: View {
     }
 
     private func weekLabel(for weekIndex: Int) -> String {
-        guard weekIndex >= 0 else { return "" }
-        let cells = heatmap.cells.filter {
-            $0.weekIndex == weekIndex && $0.isInRequestedRange
-        }
-        guard !cells.isEmpty else { return "" }
-
-        let firstVisibleWeek = heatmap.cells
-            .filter(\.isInRequestedRange)
-            .map(\.weekIndex)
-            .min()
-        let labelCell = weekIndex == firstVisibleWeek
-            ? cells.first
-            : cells.first(where: { $0.dayKey.hasSuffix("-01") })
-        guard let labelCell,
-              let month = Int(labelCell.dayKey.dropFirst(5).prefix(2))
-        else { return "" }
-        return "\(month)月"
+        heatmap.monthLabel(forWeekIndex: weekIndex) ?? ""
     }
 
     private func cellColor(_ cell: DailyActivityCell) -> Color {
@@ -312,31 +296,171 @@ private struct MonthlyActivityHeatmapGrid: View {
     let heatmap: MonthlyActivityHeatmap
     let metric: HeatmapMetric
 
+    @State private var hoveredTarget: MonthlyHeatmapCellTarget?
+    @State private var scroll = ScrollWatcher()
+
+    private let yearLabelWidth: CGFloat = 34
+    private let columnSpacing: CGFloat = 5
+    private let rowSpacing: CGFloat = 7
+    private let headerSpacing: CGFloat = 7
+
     var body: some View {
         if heatmap.months.isEmpty {
             ActivityUnavailableView(message: "当前范围暂无月度数据")
         } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 8) {
-                    ForEach(heatmap.months) { month in
-                        VStack(spacing: 7) {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(heatmapColor(
-                                    metric: metric,
-                                    intensity: heatmap.intensity(monthKey: month.monthKey)
-                                ))
-                                .frame(width: 34, height: 34)
-                                .help("\(month.monthKey)\n\(heatmapTooltipValue(metric: metric, value: month.value))")
-                            Text(month.monthKey)
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundStyle(AppTheme.tertiaryText)
+            GeometryReader { proxy in
+                let cellSize = monthlyCellSize(availableWidth: proxy.size.width)
+                let gridWidth = yearLabelWidth
+                    + columnSpacing * 12
+                    + cellSize * 12
+                let plotHeight = cellSize * CGFloat(heatmap.years.count)
+                    + rowSpacing * CGFloat(max(heatmap.years.count - 1, 0))
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: headerSpacing) {
+                        HStack(spacing: columnSpacing) {
+                            Color.clear.frame(width: yearLabelWidth, height: 1)
+                            ForEach(1...12, id: \.self) { month in
+                                Text("\(month)")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundStyle(AppTheme.tertiaryText)
+                                    .frame(width: cellSize)
+                                    .accessibilityLabel("\(month)月")
+                            }
                         }
+
+                        ZStack(alignment: .topLeading) {
+                            VStack(spacing: rowSpacing) {
+                                ForEach(heatmap.years) { year in
+                                    HStack(spacing: columnSpacing) {
+                                        Text(String(year.year))
+                                            .font(.system(size: 9, design: .monospaced))
+                                            .foregroundStyle(AppTheme.tertiaryText)
+                                            .frame(width: yearLabelWidth, alignment: .leading)
+
+                                        ForEach(year.months) { month in
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(cellColor(month))
+                                                .frame(width: cellSize, height: cellSize)
+                                        }
+                                    }
+                                }
+                            }
+
+                            GeometryReader { geometry in
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .allowsHitTesting(!scroll.isScrolling)
+                                    .onContinuousHover(coordinateSpace: .local) { phase in
+                                        switch phase {
+                                        case .active(let point):
+                                            guard !scroll.isScrolling else { return }
+                                            let target = DashboardLayout.monthlyHeatmapCellTarget(
+                                                at: point,
+                                                cellSize: cellSize,
+                                                rowCount: heatmap.years.count,
+                                                yearLabelWidth: yearLabelWidth,
+                                                columnSpacing: columnSpacing,
+                                                rowSpacing: rowSpacing
+                                            )
+                                            let validTarget = target.flatMap(monthCell)?.hasData == true
+                                                ? target
+                                                : nil
+                                            if hoveredTarget != validTarget { hoveredTarget = validTarget }
+                                        case .ended:
+                                            if hoveredTarget != nil { hoveredTarget = nil }
+                                        }
+                                    }
+
+                                if let target = hoveredTarget,
+                                   let month = monthCell(target) {
+                                    let center = cellCenter(target, cellSize: cellSize)
+                                    let horizontalInset = min(CGFloat(88), geometry.size.width / 2)
+                                    let tooltipX = min(
+                                        max(center.x, horizontalInset),
+                                        max(horizontalInset, geometry.size.width - horizontalInset)
+                                    )
+                                    let tooltipY = center.y < 45
+                                        ? center.y + 38
+                                        : center.y - 34
+
+                                    tooltip(month)
+                                        .position(x: tooltipX, y: tooltipY)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                        }
+                        .frame(width: gridWidth, height: plotHeight)
                     }
+                    .frame(width: gridWidth)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height, alignment: .center)
                 }
-                .padding(.horizontal, 2)
-                .frame(minWidth: 0, minHeight: 154, alignment: .center)
+            }
+            .onAppear { scroll.start() }
+            .onDisappear { scroll.stop() }
+            .onChange(of: scroll.isScrolling) { _, scrolling in
+                if scrolling, hoveredTarget != nil {
+                    hoveredTarget = nil
+                }
             }
         }
+    }
+
+    private func monthlyCellSize(availableWidth: CGFloat) -> CGFloat {
+        let fittingWidth = (
+            availableWidth - yearLabelWidth - columnSpacing * 12
+        ) / 12
+        return min(max(fittingWidth, 8), 22)
+    }
+
+    private func monthCell(_ target: MonthlyHeatmapCellTarget) -> MonthlyActivityCell? {
+        guard heatmap.years.indices.contains(target.row),
+              heatmap.years[target.row].months.indices.contains(target.column)
+        else { return nil }
+        return heatmap.years[target.row].months[target.column]
+    }
+
+    private func cellColor(_ month: MonthlyActivityCell) -> Color {
+        guard month.hasData else { return AppTheme.separator.opacity(0.18) }
+        return heatmapColor(
+            metric: metric,
+            intensity: heatmap.intensity(monthKey: month.monthKey)
+        )
+    }
+
+    private func cellCenter(
+        _ target: MonthlyHeatmapCellTarget,
+        cellSize: CGFloat
+    ) -> CGPoint {
+        CGPoint(
+            x: yearLabelWidth
+                + columnSpacing
+                + CGFloat(target.column) * (cellSize + columnSpacing)
+                + cellSize / 2,
+            y: CGFloat(target.row) * (cellSize + rowSpacing) + cellSize / 2
+        )
+    }
+
+    private func tooltip(_ month: MonthlyActivityCell) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(month.monthKey)
+                .fontWeight(.semibold)
+                .foregroundStyle(AppTheme.primaryText)
+            Text(heatmapTooltipValue(metric: metric, value: month.value))
+                .foregroundStyle(month.value > 0
+                    ? (metric == .cost ? AppTheme.costAccent : AppTheme.secondaryText)
+                    : AppTheme.tertiaryText)
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(AppTheme.tooltipBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(AppTheme.separator, lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+        .fixedSize()
+        .allowsHitTesting(false)
     }
 }
 

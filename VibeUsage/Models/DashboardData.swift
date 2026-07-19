@@ -331,6 +331,26 @@ struct DailyActivityHeatmap: Equatable {
         cells.first { $0.weekdayIndex == weekdayIndex && $0.weekIndex == weekIndex }
     }
 
+    func monthLabel(forWeekIndex weekIndex: Int) -> String? {
+        let visibleWeekIndices = Set(
+            cells.lazy.filter(\.isInRequestedRange).map(\.weekIndex)
+        )
+        guard visibleWeekIndices.contains(weekIndex),
+              let month = ownershipMonth(forWeekIndex: weekIndex)
+        else { return nil }
+
+        if let previousWeek = visibleWeekIndices.filter({ $0 < weekIndex }).max(),
+           ownershipMonth(forWeekIndex: previousWeek) == month {
+            return nil
+        }
+        return "\(month)月"
+    }
+
+    private func ownershipMonth(forWeekIndex weekIndex: Int) -> Int? {
+        guard let monday = cell(weekdayIndex: 0, weekIndex: weekIndex) else { return nil }
+        return Int(monday.dayKey.dropFirst(5).prefix(2))
+    }
+
     private static func dayKey(from value: String?) -> String? {
         guard let value, value.count >= 10 else { return nil }
         let key = String(value.prefix(10))
@@ -394,8 +414,26 @@ struct MonthlyActivityValue: Identifiable, Equatable {
     var id: String { monthKey }
 }
 
+struct MonthlyActivityCell: Identifiable, Equatable {
+    let year: Int
+    let month: Int
+    let monthKey: String
+    let value: Double
+    let hasData: Bool
+
+    var id: String { monthKey }
+}
+
+struct MonthlyActivityYear: Identifiable, Equatable {
+    let year: Int
+    let months: [MonthlyActivityCell]
+
+    var id: Int { year }
+}
+
 struct MonthlyActivityHeatmap: Equatable {
     let months: [MonthlyActivityValue]
+    let years: [MonthlyActivityYear]
     let maximum: Double
 
     init(buckets: [UsageBucket], metric: HeatmapMetric = .token) {
@@ -415,6 +453,31 @@ struct MonthlyActivityHeatmap: Equatable {
         months = aggregated.keys.sorted().map {
             MonthlyActivityValue(monthKey: $0, value: aggregated[$0, default: 0])
         }
+        let activeValues = Dictionary(uniqueKeysWithValues: months.map {
+            ($0.monthKey, $0.value)
+        })
+        years = Set(months.compactMap { Int($0.monthKey.prefix(4)) })
+            .sorted()
+            .map { year in
+                MonthlyActivityYear(
+                    year: year,
+                    months: (1...12).map { month in
+                        let monthKey = String(
+                            format: "%04d-%02d",
+                            locale: Locale(identifier: "en_US_POSIX"),
+                            year,
+                            month
+                        )
+                        return MonthlyActivityCell(
+                            year: year,
+                            month: month,
+                            monthKey: monthKey,
+                            value: activeValues[monthKey, default: 0],
+                            hasData: activeValues[monthKey] != nil
+                        )
+                    }
+                )
+            }
         maximum = months.map(\.value).max() ?? 0
     }
 

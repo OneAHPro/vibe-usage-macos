@@ -312,6 +312,29 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func monthlyHeatmapHoverMapsTheTwelveMonthMatrix() {
+        let cellSize: CGFloat = 16
+
+        #expect(DashboardLayout.monthlyHeatmapCellTarget(
+            at: CGPoint(x: 40, y: 1),
+            cellSize: cellSize,
+            rowCount: 2
+        ) == MonthlyHeatmapCellTarget(row: 0, column: 0))
+
+        #expect(DashboardLayout.monthlyHeatmapCellTarget(
+            at: CGPoint(x: 271, y: 24),
+            cellSize: cellSize,
+            rowCount: 2
+        ) == MonthlyHeatmapCellTarget(row: 1, column: 11))
+
+        #expect(DashboardLayout.monthlyHeatmapCellTarget(
+            at: CGPoint(x: 56, y: 8),
+            cellSize: cellSize,
+            rowCount: 2
+        ) == nil)
+    }
+
+    @Test
     func activityCardRendersTheDeclaredBucketGranularity() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -332,7 +355,16 @@ struct DashboardLayoutTests {
             .components(separatedBy: "private struct MonthlyActivityHeatmapGrid")[0]
         #expect(dailyView.contains(".onContinuousHover"))
         #expect(dailyView.contains("dailyHeatmapCellTarget"))
+        #expect(dailyView.contains("heatmap.monthLabel(forWeekIndex: weekIndex)"))
+        #expect(!dailyView.contains("dayKey.hasSuffix(\"-01\")"))
         #expect(!dailyView.contains(".help(cellTooltip(cell))"))
+        let monthlyView = view.components(separatedBy: "private struct MonthlyActivityHeatmapGrid")[1]
+            .components(separatedBy: "private struct ActivityUnavailableView")[0]
+        #expect(monthlyView.contains("heatmap.years"))
+        #expect(monthlyView.contains("ScrollView(.vertical, showsIndicators: false)"))
+        #expect(monthlyView.contains(".onContinuousHover"))
+        #expect(monthlyView.contains("monthlyHeatmapCellTarget"))
+        #expect(!monthlyView.contains(".help("))
         #expect(!view.contains("let heatmap = appState.activityHeatmap(for: metric)"))
     }
 
@@ -578,5 +610,11 @@ struct DashboardLayoutTests {
         #expect(!view.contains("终端"))
         #expect(!view.contains("工具"))
         #expect(view.contains("首字"))
+        let firstResponseCell = view.components(separatedBy: "private func firstResponseBadge")[1]
+            .components(separatedBy: "private func firstResponseForeground")[0]
+        #expect(firstResponseCell.contains(".foregroundStyle(firstResponseForeground"))
+        #expect(!firstResponseCell.contains(".background("))
+        #expect(!firstResponseCell.contains(".clipShape("))
+        #expect(!firstResponseCell.contains(".padding(.vertical"))
     }
 }

@@ -129,9 +129,6 @@ struct UsageRecordsView: View {
             .foregroundStyle(firstResponseForeground(row.firstResponseTier))
             .lineLimit(1)
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(firstResponseBackground(row.firstResponseTier))
-            .clipShape(Capsule())
             .frame(width: width, alignment: .center)
     }
 
@@ -148,16 +145,4 @@ struct UsageRecordsView: View {
         }
     }
 
-    private func firstResponseBackground(_ tier: FirstResponseTimeTier) -> Color {
-        switch tier {
-        case .fast:
-            Color(red: 0.18, green: 0.72, blue: 0.34).opacity(0.14)
-        case .slow:
-            Color(red: 0.95, green: 0.42, blue: 0.34).opacity(0.14)
-        case .critical:
-            Color(red: 0.88, green: 0.12, blue: 0.16).opacity(0.24)
-        case .unavailable:
-            .clear
-        }
-    }
 }

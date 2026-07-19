@@ -356,6 +356,37 @@ struct DashboardDataTests {
     }
 
     @Test
+    func dailyActivityMonthLabelsBelongToTheWeekStartMonth() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let heatmap = DailyActivityHeatmap(
+            buckets: [],
+            requestedStart: "2026-04-20T00:00:00Z",
+            requestedEnd: "2026-05-10T23:59:59Z",
+            calendar: calendar
+        )
+
+        #expect(heatmap.monthLabel(forWeekIndex: 0) == "4月")
+        #expect(heatmap.monthLabel(forWeekIndex: 1) == nil)
+        #expect(heatmap.monthLabel(forWeekIndex: 2) == "5月")
+    }
+
+    @Test
+    func dailyActivityPartialFirstWeekStillUsesItsMondayMonth() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let heatmap = DailyActivityHeatmap(
+            buckets: [],
+            requestedStart: "2026-05-01T00:00:00Z",
+            requestedEnd: "2026-05-10T23:59:59Z",
+            calendar: calendar
+        )
+
+        #expect(heatmap.monthLabel(forWeekIndex: 0) == "4月")
+        #expect(heatmap.monthLabel(forWeekIndex: 1) == "5月")
+    }
+
+    @Test
     func monthlyActivityCombinesBucketsByBackendMonthKey() {
         let heatmap = MonthlyActivityHeatmap(buckets: [
             bucket(
@@ -393,6 +424,44 @@ struct DashboardDataTests {
         #expect(heatmap.months.map(\.monthKey) == ["2026-06", "2026-07"])
         #expect(heatmap.months[0].value == 150)
         #expect(heatmap.maximum == 150)
+    }
+
+    @Test
+    func monthlyActivityBuildsTwelveMonthRowsForEachYear() throws {
+        let heatmap = MonthlyActivityHeatmap(buckets: [
+            bucket(
+                source: "codex",
+                project: "radar",
+                bucketStart: "2026-03-01T00:00:00Z",
+                input: 30,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 0.3
+            ),
+            bucket(
+                source: "codex",
+                project: "radar",
+                bucketStart: "2026-07-01T00:00:00Z",
+                input: 70,
+                output: 0,
+                reasoning: 0,
+                cached: 0,
+                cost: 0.7
+            ),
+        ])
+
+        let year = try #require(heatmap.years.first)
+        #expect(heatmap.years.count == 1)
+        #expect(year.year == 2026)
+        #expect(year.months.map(\.month) == Array(1...12))
+        #expect(year.months[0].hasData == false)
+        #expect(year.months[2].monthKey == "2026-03")
+        #expect(year.months[2].value == 30)
+        #expect(year.months[2].hasData)
+        #expect(year.months[6].monthKey == "2026-07")
+        #expect(year.months[6].value == 70)
+        #expect(year.months[7].hasData == false)
     }
 
     @Test

@@ -1,12 +1,72 @@
 import SwiftUI
 
+private struct WalletOverviewLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let width = max(proposal.width ?? DashboardLayout.walletOverviewMinimumColumnWidth, 0)
+        let columnCount = min(DashboardLayout.walletOverviewColumnCount(for: width), max(subviews.count, 1))
+        let columnWidth = max((width - spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount), 0)
+        var height: CGFloat = 0
+
+        for rowStart in stride(from: 0, to: subviews.count, by: columnCount) {
+            let rowEnd = min(rowStart + columnCount, subviews.count)
+            let rowHeight = subviews[rowStart..<rowEnd].reduce(CGFloat.zero) { current, subview in
+                max(current, subview.sizeThatFits(.init(width: columnWidth, height: nil)).height)
+            }
+            height += rowHeight
+            if rowEnd < subviews.count { height += spacing }
+        }
+
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let columnCount = min(
+            DashboardLayout.walletOverviewColumnCount(for: bounds.width),
+            max(subviews.count, 1)
+        )
+        let columnWidth = max(
+            (bounds.width - spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount),
+            0
+        )
+        var y = bounds.minY
+
+        for rowStart in stride(from: 0, to: subviews.count, by: columnCount) {
+            let rowEnd = min(rowStart + columnCount, subviews.count)
+            let row = subviews[rowStart..<rowEnd]
+            let rowHeight = row.reduce(CGFloat.zero) { current, subview in
+                max(current, subview.sizeThatFits(.init(width: columnWidth, height: nil)).height)
+            }
+
+            for (offset, subview) in row.enumerated() {
+                let x = bounds.minX + CGFloat(offset) * (columnWidth + spacing)
+                subview.place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: .init(width: columnWidth, height: rowHeight)
+                )
+            }
+            y += rowHeight + spacing
+        }
+    }
+}
+
 struct WalletManagementView: View {
     @Environment(AppState.self) private var appState
     @Bindable var store: WalletManagementStore
     let client: (any AccountManagementClient)?
     let quotaPerUnit: Double
 
-    @State private var selectedSection = WalletSection.subscriptions
     @State private var selectedPaymentID = ""
     @State private var selectedCreemProductID = ""
     @State private var selectedPlan: SubscriptionPlan?
@@ -23,37 +83,17 @@ struct WalletManagementView: View {
                 }
 
                 balanceCard
-                sectionPicker
-
-                switch selectedSection {
-                case .subscriptions:
-                    subscriptionContent
-                case .recharge:
-                    rechargeCard
-                case .records:
-                    historyCard
-                    AccountPagination(
-                        page: store.page,
-                        pageCount: store.pageCount,
-                        total: store.total,
-                        disabled: store.isLoading || store.isMutating,
-                        onPrevious: { changePage(store.page - 1) },
-                        onNext: { changePage(store.page + 1) }
-                    )
-                    .padding(.horizontal, 4)
-                }
+                walletOverviewGrid
+                availablePlansCard
+                fundingHistorySection
             }
-            .padding(20)
+            .padding(DashboardLayout.walletHorizontalInset)
         }
         .background(AppTheme.subtleSurface)
         .task {
             guard let client else { return }
             await store.loadIfNeeded(client: client)
             selectDefaultPaymentIfNeeded()
-        }
-        .onChange(of: selectedSection) { _, section in
-            guard section == .records, let client else { return }
-            Task { await store.loadFundingRecordsIfNeeded(client: client) }
         }
         .onChange(of: store.requiresAuthentication) { _, required in
             if required { appState.handleAccountAuthenticationFailure() }
@@ -129,20 +169,29 @@ struct WalletManagementView: View {
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
     }
 
-    private var sectionPicker: some View {
-        Picker("钱包功能", selection: $selectedSection) {
-            ForEach(WalletSection.allCases) { section in
-                Text(section.rawValue).tag(section)
-            }
+    private var walletOverviewGrid: some View {
+        WalletOverviewLayout(spacing: DashboardLayout.walletOverviewSpacing) {
+            currentSubscriptionsCard
+            rechargeCard
         }
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 460)
     }
 
-    private var subscriptionContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            currentSubscriptionsCard
-            availablePlansCard
+    private var fundingHistorySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            historyCard
+            AccountPagination(
+                page: store.page,
+                pageCount: store.pageCount,
+                total: store.total,
+                disabled: store.isLoading || store.isMutating,
+                onPrevious: { changePage(store.page - 1) },
+                onNext: { changePage(store.page + 1) }
+            )
+            .padding(.horizontal, 4)
+        }
+        .task {
+            guard let client else { return }
+            await store.loadFundingRecordsIfNeeded(client: client)
         }
     }
 
@@ -351,10 +400,10 @@ struct WalletManagementView: View {
     private var rechargeCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("在线充值")
+                Text("余额充值")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(AppTheme.primaryText)
-                Text("支付将在默认浏览器中安全完成")
+                Text("在线充值将在默认浏览器中安全完成")
                     .font(.system(size: 10))
                     .foregroundStyle(AppTheme.tertiaryText)
             }
@@ -380,7 +429,7 @@ struct WalletManagementView: View {
                                 }
                             }
                             .labelsHidden()
-                            .frame(width: 180)
+                            .frame(width: DashboardLayout.walletPaymentPickerWidth)
                         }
 
                         if selectedPaymentID == "creem" {
@@ -395,7 +444,7 @@ struct WalletManagementView: View {
                                     }
                                 }
                                 .labelsHidden()
-                                .frame(width: 300)
+                                .frame(width: DashboardLayout.walletCreemProductPickerWidth)
                             }
                         } else {
                             VStack(alignment: .leading, spacing: 6) {
@@ -407,18 +456,23 @@ struct WalletManagementView: View {
                                     .frame(width: 130)
                                     .onSubmit { calculatePaymentAmount() }
                             }
-
-                            if let presets = store.topUpInfo?.amountOptions, !presets.isEmpty {
-                                HStack(spacing: 6) {
-                                    ForEach(presets.prefix(5), id: \.self) { amount in
-                                        Button(String(amount)) { amountText = String(amount) }
-                                            .buttonStyle(.bordered)
-                                            .controlSize(.small)
-                                    }
-                                }
-                            }
                         }
                         Spacer()
+                    }
+
+                    if selectedPaymentID != "creem",
+                       let presets = store.topUpInfo?.amountOptions,
+                       !presets.isEmpty {
+                        HStack(spacing: 6) {
+                            Text("快捷金额")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(AppTheme.secondaryText)
+                            ForEach(presets.prefix(5), id: \.self) { amount in
+                                Button(String(amount)) { amountText = String(amount) }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                            }
+                        }
                     }
 
                     HStack(spacing: 10) {
@@ -443,7 +497,7 @@ struct WalletManagementView: View {
                 }
             }
         }
-        .padding(16)
+        .padding(DashboardLayout.walletCardHorizontalInset)
         .background(AppTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
@@ -451,10 +505,15 @@ struct WalletManagementView: View {
 
     private var historyCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("充值记录")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(AppTheme.primaryText)
-                .padding(16)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("资金记录")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppTheme.primaryText)
+                Text("充值记录与系统额度调整")
+                    .font(.system(size: 10))
+                    .foregroundStyle(AppTheme.tertiaryText)
+            }
+            .padding(16)
 
             Divider()
 
@@ -633,7 +692,7 @@ struct WalletManagementView: View {
     private func refresh() {
         guard let client else { return }
         Task {
-            await store.refresh(client: client, target: selectedSection.refreshTarget)
+            await store.refreshOverview(client: client)
             selectDefaultPaymentIfNeeded()
         }
     }
@@ -657,22 +716,6 @@ struct WalletManagementView: View {
         case "pending": .orange
         case "failed", "expired": .red
         default: .gray
-        }
-    }
-}
-
-private enum WalletSection: String, CaseIterable, Identifiable {
-    case subscriptions = "订阅套餐"
-    case recharge = "余额充值"
-    case records = "资金记录"
-
-    var id: String { rawValue }
-
-    var refreshTarget: WalletRefreshTarget {
-        switch self {
-        case .subscriptions: .subscriptions
-        case .recharge: .recharge
-        case .records: .records
         }
     }
 }

@@ -19,6 +19,12 @@ enum DashboardLayout {
     static let sidebarWidth: CGFloat = 188
     static let contentSpacing: CGFloat = 12
     static let leaderboardSectionSpacing: CGFloat = 48
+    static let walletHorizontalInset: CGFloat = 20
+    static let walletOverviewMinimumColumnWidth: CGFloat = 500
+    static let walletOverviewSpacing: CGFloat = 12
+    static let walletCardHorizontalInset: CGFloat = 16
+    static let walletPaymentPickerWidth: CGFloat = 180
+    static let walletCreemProductPickerWidth: CGFloat = 260
     static let chartAxisLabelWidth: CGFloat = 46
     static let heatmapWeekdayLabelWidth: CGFloat = 30
     static let heatmapColumnSpacing: CGFloat = 4
@@ -38,6 +44,20 @@ enum DashboardLayout {
 
     static func analyticsColumnCount(for width: CGFloat) -> Int {
         width >= 900 ? 2 : 1
+    }
+
+    static func walletOverviewColumnCount(for width: CGFloat) -> Int {
+        width >= walletOverviewMinimumColumnWidth * 2 + walletOverviewSpacing ? 2 : 1
+    }
+
+    static func walletRechargeControlsFit(for width: CGFloat) -> Bool {
+        let columns = walletOverviewColumnCount(for: width)
+        let cardWidth = (width - walletOverviewSpacing * CGFloat(columns - 1)) / CGFloat(columns)
+        let contentWidth = cardWidth - walletCardHorizontalInset * 2
+        let controlsWidth = walletPaymentPickerWidth
+            + walletOverviewSpacing
+            + walletCreemProductPickerWidth
+        return controlsWidth <= contentWidth
     }
 
     static func heatmapCellSize(for width: CGFloat) -> CGFloat {

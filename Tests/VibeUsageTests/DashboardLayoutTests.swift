@@ -14,6 +14,24 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func walletOverviewIsSideBySideAtDefaultWidthAndStackedAtMinimumWidth() {
+        let defaultContentWidth = MainWindowConfiguration.standard.defaultContentSize.width
+            - DashboardLayout.sidebarWidth
+            - DashboardLayout.walletHorizontalInset * 2
+        let minimumContentWidth = MainWindowConfiguration.standard.minimumContentSize.width
+            - DashboardLayout.sidebarWidth
+            - DashboardLayout.walletHorizontalInset * 2
+
+        #expect(DashboardLayout.walletOverviewColumnCount(for: defaultContentWidth) == 2)
+        #expect(DashboardLayout.walletOverviewColumnCount(for: minimumContentWidth) == 1)
+        #expect(DashboardLayout.walletRechargeControlsFit(for: defaultContentWidth))
+        #expect(DashboardLayout.walletRechargeControlsFit(
+            for: DashboardLayout.walletOverviewMinimumColumnWidth * 2
+                + DashboardLayout.walletOverviewSpacing
+        ))
+    }
+
+    @Test
     func leaderboardUsesOfficialSectionSpacing() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -151,11 +169,17 @@ struct DashboardLayoutTests {
         #expect(view.contains("订阅套餐"))
         #expect(view.contains("余额充值"))
         #expect(view.contains("资金记录"))
+        #expect(view.contains("private var walletOverviewGrid"))
         #expect(view.contains("当前订阅"))
         #expect(view.contains("可选套餐"))
         #expect(view.contains("SubscriptionPurchaseSheet"))
         #expect(view.contains("loadFundingRecordsIfNeeded"))
-        #expect(view.contains("target: selectedSection.refreshTarget"))
+        #expect(view.contains("refreshOverview"))
+        #expect(!view.contains("selectedSection"))
+        #expect(!view.contains("sectionPicker"))
+        #expect(!view.contains("Picker(\"钱包功能\""))
+        #expect(!view.contains("private enum WalletSection"))
+        #expect(!view.contains(".pickerStyle(.segmented)"))
         #expect(view.contains("在线充值"))
         #expect(view.contains("预计支付金额"))
         #expect(view.contains("计算实付"))

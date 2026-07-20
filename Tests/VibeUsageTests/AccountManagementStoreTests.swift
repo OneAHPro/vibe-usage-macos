@@ -93,11 +93,18 @@ struct AccountManagementStoreTests {
         await store.loadFundingRecordsIfNeeded(client: client)
         #expect(client.topUpPageCalls == 1)
 
-        await store.refresh(client: client, target: .records)
+        await store.refreshOverview(client: client)
         #expect(client.userCalls == 3)
-        #expect(client.topUpInfoCalls == 2)
-        #expect(client.subscriptionPlanCalls == 1)
-        #expect(client.subscriptionSelfCalls == 1)
+        #expect(client.topUpInfoCalls == 3)
+        #expect(client.subscriptionPlanCalls == 2)
+        #expect(client.subscriptionSelfCalls == 2)
+        #expect(client.topUpPageCalls == 1)
+
+        await store.refresh(client: client, target: .records)
+        #expect(client.userCalls == 4)
+        #expect(client.topUpInfoCalls == 3)
+        #expect(client.subscriptionPlanCalls == 2)
+        #expect(client.subscriptionSelfCalls == 2)
         #expect(client.topUpPageCalls == 2)
     }
 

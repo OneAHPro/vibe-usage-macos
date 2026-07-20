@@ -60,6 +60,10 @@ final class WalletManagementStore {
         _ = await load(client: client, target: .subscriptions)
     }
 
+    func refreshOverview(client: any AccountManagementClient) async {
+        _ = await load(client: client, target: .subscriptions)
+    }
+
     func refresh(client: any AccountManagementClient, target: WalletRefreshTarget) async {
         let operationGeneration = generation
         let overviewSucceeded = await load(client: client, target: target)

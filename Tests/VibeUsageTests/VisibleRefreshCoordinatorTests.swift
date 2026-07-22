@@ -119,6 +119,59 @@ struct VisibleRefreshCoordinatorTests {
     }
 
     @Test
+    func failedAutomaticAttemptStillPreventsRestartRequestsForSixtySeconds() async {
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        let firstAttempt = now
+        var calls = 0
+        let coordinator = makeCoordinator(
+            now: { now },
+            lastSuccess: { _ in nil },
+            refresh: { _ in
+                calls += 1
+                return .failure
+            }
+        )
+        coordinator.setActiveTarget(.usage)
+        coordinator.setWindowVisible(true)
+
+        await coordinator.runAutomaticRefreshCycleForTesting()
+        #expect(calls == 1)
+
+        coordinator.setWindowVisible(false)
+        now = firstAttempt.addingTimeInterval(59)
+        coordinator.setWindowVisible(true)
+        await coordinator.runAutomaticRefreshCycleForTesting()
+        #expect(calls == 1)
+
+        now = firstAttempt.addingTimeInterval(61)
+        await coordinator.runAutomaticRefreshCycleForTesting()
+        #expect(calls == 2)
+    }
+
+    @Test
+    func resettingSessionClearsRateLimitAndAttemptState() async {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        var results: [SnapshotRefreshResult] = [.rateLimited(until: nil), .success]
+        var calls = 0
+        let coordinator = makeCoordinator(
+            now: { now },
+            lastSuccess: { _ in nil },
+            refresh: { _ in
+                calls += 1
+                return results.removeFirst()
+            }
+        )
+        coordinator.setActiveTarget(.usage)
+        coordinator.setWindowVisible(true)
+
+        await coordinator.requestImmediateRefresh(.usage)
+        coordinator.resetSession()
+        await coordinator.runAutomaticRefreshCycleForTesting()
+
+        #expect(calls == 2)
+    }
+
+    @Test
     func immediateRefreshRecordsAndHonorsRateLimitCooldown() async {
         var now = Date(timeIntervalSince1970: 1_700_000_000)
         var results: [SnapshotRefreshResult] = [.rateLimited(until: nil), .success]

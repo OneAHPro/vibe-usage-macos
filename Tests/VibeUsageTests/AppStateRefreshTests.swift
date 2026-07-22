@@ -74,6 +74,38 @@ struct AppStateRefreshTests {
     }
 
     @Test
+    func incompleteInitialSnapshotDoesNotReportSuccessfulSync() async {
+        let harness = makeHarness()
+        harness.client.usageResponse = Self.incompleteUsage
+        harness.state.initialize()
+
+        await harness.state.restoreSession()
+
+        #expect(harness.state.lastSyncTime == nil)
+        #expect(harness.state.buckets.isEmpty)
+        #expect(!harness.state.hasAnyData)
+        #expect(harness.state.isUsageSnapshotPreparing)
+        #expect(!harness.state.hasTrustedUsageSnapshot)
+    }
+
+    @Test
+    func incompleteUncachedRangeReturnsToLastCompleteRange() async {
+        let harness = makeHarness()
+        harness.state.initialize()
+        await harness.state.restoreSession()
+        let trustedBuckets = harness.state.buckets
+        harness.client.usageResponse = Self.incompleteUsage
+
+        await harness.state.selectTimeRange(.thirtyDays)
+
+        #expect(harness.state.timeRange == .oneDay)
+        #expect(harness.state.loadedTimeRange == .oneDay)
+        #expect(harness.state.buckets == trustedBuckets)
+        #expect(harness.state.isUsageSnapshotPreparing)
+        #expect(harness.state.hasTrustedUsageSnapshot)
+    }
+
+    @Test
     func rateLimitedSnapshotReturnsCoordinatorDeadlineAndKeepsData() async {
         let harness = makeHarness()
         harness.state.initialize()
@@ -154,6 +186,76 @@ struct AppStateRefreshTests {
         #expect(harness.state.buckets.isEmpty)
     }
 
+    @Test
+    func logoutPreventsPreviousAccountSyncTimeLeakingIntoIncompleteLogin() async {
+        let harness = makeHarness()
+        harness.state.initialize()
+        await harness.state.restoreSession()
+        #expect(harness.state.lastSyncTime != nil)
+
+        await harness.state.logout()
+        #expect(harness.state.lastSyncTime == nil)
+        #expect(harness.state.lastSyncMessage == nil)
+
+        harness.client.usageResponse = Self.incompleteUsage
+        await harness.state.login(username: "next-user", password: "secret")
+
+        #expect(harness.state.lastSyncTime == nil)
+        #expect(harness.state.isUsageSnapshotPreparing)
+    }
+
+    @Test
+    func responseFromPreviousSessionCannotOverwriteNewAccountUsage() async {
+        let harness = makeHarness()
+        harness.client.suspendNextUsageRequest = true
+        harness.state.initialize()
+
+        let restoringPreviousAccount = Task {
+            await harness.state.restoreSession()
+        }
+        while harness.client.usageCalls < 1 {
+            await Task.yield()
+        }
+
+        await harness.state.logout()
+        harness.client.usageResponse = Self.accountBUsage
+        await harness.state.login(username: "account-b", password: "secret")
+        #expect(harness.state.buckets.first?.model == "account-b-model")
+
+        harness.client.resumeSuspendedUsage(with: Self.accountAUsage)
+        await restoringPreviousAccount.value
+
+        #expect(harness.state.buckets.first?.model == "account-b-model")
+        #expect(harness.state.hasAnyData)
+    }
+
+    @Test
+    func errorFromPreviousSessionCannotLogoutNewAccount() async {
+        let harness = makeHarness()
+        harness.client.suspendNextUsageRequest = true
+        harness.state.initialize()
+
+        let restoringPreviousAccount = Task {
+            await harness.state.restoreSession()
+        }
+        while harness.client.usageCalls < 1 {
+            await Task.yield()
+        }
+
+        await harness.state.logout()
+        harness.client.usageResponse = Self.accountBUsage
+        await harness.state.login(username: "account-b", password: "secret")
+        #expect(harness.state.isConfigured)
+        #expect(harness.state.buckets.first?.model == "account-b-model")
+
+        harness.client.resumeSuspendedUsage(throwing: APIClient.APIError.unauthorized)
+        await restoringPreviousAccount.value
+
+        #expect(harness.state.isConfigured)
+        #expect(harness.state.buckets.first?.model == "account-b-model")
+        #expect(harness.state.authenticationError == nil)
+    }
+
     private func makeHarness() -> RefreshHarness {
         let clock = TestClock(now: Date(timeIntervalSince1970: 1_700_000_000))
         let client = MockNewSystemClient()
@@ -175,6 +277,47 @@ struct AppStateRefreshTests {
             state: AppState(dependencies: dependencies),
             client: client,
             clock: clock
+        )
+    }
+
+    private static let incompleteUsage = UsageResponse(
+        buckets: [],
+        sessions: [],
+        recentRequests: [],
+        coverage: UsageCoverage(
+            requestedStart: "2026-06-22T00:00:00Z",
+            requestedEnd: "2026-07-22T00:00:00Z",
+            dataStart: nil,
+            dataEnd: nil,
+            complete: false,
+            granularity: .day
+        ),
+        hasAnyData: false
+    )
+
+    private static let accountAUsage = populatedUsage(model: "account-a-model")
+    private static let accountBUsage = populatedUsage(model: "account-b-model")
+
+    private static func populatedUsage(model: String) -> UsageResponse {
+        UsageResponse(
+            buckets: [
+                UsageBucket(
+                    source: "new-api",
+                    model: model,
+                    project: "pro",
+                    hostname: "api.anhepro.com",
+                    bucketStart: "2026-07-22T09:00:00Z",
+                    inputTokens: 100,
+                    outputTokens: 20,
+                    cacheCreationInputTokens: 0,
+                    cachedInputTokens: 10,
+                    reasoningOutputTokens: 0,
+                    totalTokens: 130,
+                    estimatedCost: 0.25
+                ),
+            ],
+            sessions: [],
+            hasAnyData: true
         )
     }
 }
@@ -203,6 +346,9 @@ private final class MockNewSystemClient: NewSystemClient {
     var leaderboardCalls = 0
     var requestedRanges: [String] = []
     var usageError: Error?
+    var usageResponse = usage
+    var suspendNextUsageRequest = false
+    private var suspendedUsageContinuation: CheckedContinuation<UsageResponse, Error>?
 
     func login(username: String, password: String) async throws -> LoginOutcome {
         .authenticated(Self.user)
@@ -242,7 +388,23 @@ private final class MockNewSystemClient: NewSystemClient {
                 .joined(separator: "&")
         )
         if let usageError { throw usageError }
-        return Self.usage
+        if suspendNextUsageRequest {
+            suspendNextUsageRequest = false
+            return try await withCheckedThrowingContinuation { continuation in
+                suspendedUsageContinuation = continuation
+            }
+        }
+        return usageResponse
+    }
+
+    func resumeSuspendedUsage(with response: UsageResponse) {
+        suspendedUsageContinuation?.resume(returning: response)
+        suspendedUsageContinuation = nil
+    }
+
+    func resumeSuspendedUsage(throwing error: Error) {
+        suspendedUsageContinuation?.resume(throwing: error)
+        suspendedUsageContinuation = nil
     }
 
     func fetchQuotaPerUnit() async -> Double {

@@ -653,6 +653,27 @@ struct DashboardLayoutTests {
     }
 
     @Test
+    func dashboardDistinguishesIncompleteSnapshotFromEmptyRange() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let state = try String(
+            contentsOf: root.appendingPathComponent("VibeUsage/Models/AppState.swift"),
+            encoding: .utf8
+        )
+        let view = try String(
+            contentsOf: root.appendingPathComponent("VibeUsage/Views/DashboardShellView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(state.contains("isUsageSnapshotPreparing"))
+        #expect(view.contains("appState.isUsageSnapshotPreparing"))
+        #expect(view.contains("数据准备中"))
+        #expect(view.contains("统计数据准备中，已保留上次结果"))
+    }
+
+    @Test
     func settingsPageHidesVerticalScrollIndicator() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

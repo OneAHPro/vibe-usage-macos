@@ -272,6 +272,8 @@ struct DashboardShellView: View {
 
                     if appState.isInitialDataLoad || (!appState.hasLoadedUsageData && appState.buckets.isEmpty) {
                         loadingState
+                    } else if appState.isUsageSnapshotPreparing && !appState.hasTrustedUsageSnapshot {
+                        preparingState
                     } else if !appState.hasAnyData {
                         emptyState
                     } else {
@@ -469,6 +471,28 @@ struct DashboardShellView: View {
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
     }
 
+    private var preparingState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "hourglass.circle")
+                .font(.system(size: 32))
+                .foregroundStyle(AppTheme.tertiaryText)
+            Text("数据准备中")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(AppTheme.secondaryText)
+            Text("new 系统正在准备统计快照，请稍后重新读取")
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.tertiaryText)
+            Button("重新读取") { refreshData() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 260)
+        .background(AppTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
+    }
+
     private var loadingPill: some View {
         HStack(spacing: 8) {
             ProgressView()
@@ -487,15 +511,20 @@ struct DashboardShellView: View {
 
     @ViewBuilder
     private var statusIcon: some View {
-        switch appState.syncStatus {
-        case .syncing:
-            ProgressView().controlSize(.mini)
-        case .error:
-            Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(.red)
-        case .idle, .success:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Color(red: 0.06, green: 0.73, blue: 0.51))
+        if appState.isUsageSnapshotPreparing {
+            Image(systemName: "hourglass.circle.fill")
+                .foregroundStyle(.orange)
+        } else {
+            switch appState.syncStatus {
+            case .syncing:
+                ProgressView().controlSize(.mini)
+            case .error:
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.red)
+            case .idle, .success:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(red: 0.06, green: 0.73, blue: 0.51))
+            }
         }
     }
 
@@ -511,6 +540,11 @@ struct DashboardShellView: View {
     }
 
     private var statusText: String {
+        if appState.isUsageSnapshotPreparing {
+            return appState.hasTrustedUsageSnapshot
+                ? "统计数据准备中，已保留上次结果"
+                : "统计数据准备中"
+        }
         switch appState.syncStatus {
         case .syncing:
             return "正在同步数据…"

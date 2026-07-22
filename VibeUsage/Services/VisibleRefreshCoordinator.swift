@@ -28,9 +28,11 @@ final class VisibleRefreshCoordinator {
     private var windowVisible = false
     private var activeTarget: RemoteRefreshTarget = .none
     private var loopTask: Task<Void, Never>?
-    private var inFlight: Set<RemoteRefreshTarget> = []
+    private var inFlight: [RemoteRefreshTarget: UUID] = [:]
     private var manualAttemptAt: [RemoteRefreshTarget: Date] = [:]
+    private var lastAttemptAt: [RemoteRefreshTarget: Date] = [:]
     private var cooldownUntil: [RemoteRefreshTarget: Date] = [:]
+    private var sessionGeneration: UInt = 0
 
     init(
         now: @escaping () -> Date = Date.init,
@@ -94,6 +96,14 @@ final class VisibleRefreshCoordinator {
         loopTask = nil
     }
 
+    func resetSession() {
+        sessionGeneration &+= 1
+        inFlight.removeAll()
+        manualAttemptAt.removeAll()
+        lastAttemptAt.removeAll()
+        cooldownUntil.removeAll()
+    }
+
     func runAutomaticRefreshCycleForTesting() async {
         await runAutomaticRefreshCycle()
     }
@@ -121,8 +131,11 @@ final class VisibleRefreshCoordinator {
         let target = activeTarget
         let current = now()
         guard !isCoolingDown(target, at: current) else { return }
-        if let refreshedAt = lastSuccess(target),
-           current.timeIntervalSince(refreshedAt) < 60
+        let latestRefreshActivity = [lastSuccess(target), lastAttemptAt[target]]
+            .compactMap { $0 }
+            .max()
+        if let latestRefreshActivity,
+           current.timeIntervalSince(latestRefreshActivity) < 60
         {
             return
         }
@@ -131,10 +144,18 @@ final class VisibleRefreshCoordinator {
 
     @discardableResult
     private func perform(_ target: RemoteRefreshTarget) async -> Bool {
-        guard !inFlight.contains(target) else { return false }
-        inFlight.insert(target)
+        guard inFlight[target] == nil else { return false }
+        let operationID = UUID()
+        let operationGeneration = sessionGeneration
+        inFlight[target] = operationID
+        lastAttemptAt[target] = now()
         let result = await refresh(target)
-        inFlight.remove(target)
+        guard operationGeneration == sessionGeneration,
+              inFlight[target] == operationID
+        else {
+            return true
+        }
+        inFlight.removeValue(forKey: target)
 
         switch result {
         case .success:

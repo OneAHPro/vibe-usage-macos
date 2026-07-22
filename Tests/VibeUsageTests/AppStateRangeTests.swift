@@ -118,6 +118,156 @@ struct AppStateRangeTests {
     }
 
     @Test
+    func incompleteSnapshotDoesNotReplaceLastCompleteUsage() {
+        let state = AppState()
+        let bucket = UsageBucket(
+            source: "new-api",
+            model: "gpt-5.6-sol",
+            project: "pro",
+            hostname: "api.anhepro.com",
+            bucketStart: "2026-07-22T08:00:00Z",
+            inputTokens: 100,
+            outputTokens: 20,
+            cacheCreationInputTokens: 0,
+            cachedInputTokens: 10,
+            reasoningOutputTokens: 0,
+            totalTokens: 130,
+            estimatedCost: 0.25
+        )
+        let completeCoverage = UsageCoverage(
+            requestedStart: "2026-07-21T09:00:00Z",
+            requestedEnd: "2026-07-22T09:00:00Z",
+            dataStart: "2026-07-21T09:00:00Z",
+            dataEnd: "2026-07-22T09:00:00Z",
+            complete: true,
+            granularity: .hour
+        )
+        state.applyUsageResponse(
+            UsageResponse(
+                buckets: [bucket],
+                sessions: [],
+                coverage: completeCoverage,
+                hasAnyData: true
+            ),
+            for: .oneDay
+        )
+        let committedGeneration = state.dashboardRenderGeneration
+
+        state.applyUsageResponse(
+            UsageResponse(
+                buckets: [],
+                sessions: [],
+                coverage: UsageCoverage(
+                    requestedStart: completeCoverage.requestedStart,
+                    requestedEnd: completeCoverage.requestedEnd,
+                    dataStart: nil,
+                    dataEnd: nil,
+                    complete: false,
+                    granularity: .hour
+                ),
+                hasAnyData: false
+            ),
+            for: .oneDay
+        )
+
+        #expect(state.buckets == [bucket])
+        #expect(state.hasAnyData)
+        #expect(state.usageCoverage == completeCoverage)
+        #expect(state.dashboardRenderGeneration == committedGeneration)
+        #expect(state.isUsageSnapshotPreparing)
+        #expect(state.hasTrustedUsageSnapshot)
+    }
+
+    @Test
+    func completeEmptySnapshotClearsPreparingAndRemainsTruthfulEmpty() {
+        let state = AppState()
+        let incompleteCoverage = UsageCoverage(
+            requestedStart: "2026-07-21T09:00:00Z",
+            requestedEnd: "2026-07-22T09:00:00Z",
+            dataStart: nil,
+            dataEnd: nil,
+            complete: false,
+            granularity: .hour
+        )
+        state.applyUsageResponse(
+            UsageResponse(
+                buckets: [],
+                sessions: [],
+                coverage: incompleteCoverage,
+                hasAnyData: false
+            ),
+            for: .oneDay
+        )
+        #expect(state.isUsageSnapshotPreparing)
+
+        let completeCoverage = UsageCoverage(
+            requestedStart: incompleteCoverage.requestedStart,
+            requestedEnd: incompleteCoverage.requestedEnd,
+            dataStart: nil,
+            dataEnd: nil,
+            complete: true,
+            granularity: .hour
+        )
+        state.applyUsageResponse(
+            UsageResponse(
+                buckets: [],
+                sessions: [],
+                coverage: completeCoverage,
+                hasAnyData: false
+            ),
+            for: .oneDay
+        )
+
+        #expect(!state.isUsageSnapshotPreparing)
+        #expect(state.hasTrustedUsageSnapshot)
+        #expect(!state.hasAnyData)
+        #expect(state.usageCoverage == completeCoverage)
+    }
+
+    @Test
+    func incompleteSnapshotWithUsageRemainsDisplayable() {
+        let state = AppState()
+        let bucket = UsageBucket(
+            source: "new-api",
+            model: "gpt-5.6-sol",
+            project: "pro",
+            hostname: "api.anhepro.com",
+            bucketStart: "2026-07-22T09:00:00Z",
+            inputTokens: 100,
+            outputTokens: 20,
+            cacheCreationInputTokens: 0,
+            cachedInputTokens: 10,
+            reasoningOutputTokens: 0,
+            totalTokens: 130,
+            estimatedCost: 0.25
+        )
+        let incompleteCoverage = UsageCoverage(
+            requestedStart: "2026-07-21T09:00:00Z",
+            requestedEnd: "2026-07-22T09:00:30Z",
+            dataStart: "2026-07-22T09:00:00Z",
+            dataEnd: "2026-07-22T09:00:00Z",
+            complete: false,
+            granularity: .hour
+        )
+
+        let accepted = state.applyUsageResponse(
+            UsageResponse(
+                buckets: [bucket],
+                sessions: [],
+                coverage: incompleteCoverage,
+                hasAnyData: false
+            ),
+            for: .oneDay
+        )
+
+        #expect(accepted)
+        #expect(state.buckets == [bucket])
+        #expect(state.hasAnyData)
+        #expect(!state.isUsageSnapshotPreparing)
+        #expect(state.hasTrustedUsageSnapshot)
+    }
+
+    @Test
     func allHistoryUsesExplicitLoadingCopy() {
         let state = AppState()
         state.timeRange = .all

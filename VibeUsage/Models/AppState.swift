@@ -117,6 +117,7 @@ final class AppState {
     var recentRequests: [UsageRequestRecord]?
     var usageCoverage: UsageCoverage?
     var hasAnyData: Bool = false
+    var isUsageSnapshotPreparing: Bool = false
     var isLoadingData: Bool = false
     var hasLoadedUsageData: Bool = false
     var isLoadingHeatmap: Bool = false
@@ -132,6 +133,10 @@ final class AppState {
 
     var isRefreshingData: Bool {
         isLoadingData && hasLoadedUsageData
+    }
+
+    var hasTrustedUsageSnapshot: Bool {
+        usageCache[loadedTimeRange] != nil
     }
 
     var usageLoadingMessage: String {
@@ -290,6 +295,8 @@ final class AppState {
     private let dependencies: AppStateDependencies
     private var usageCache: [TimeRange: UsageSnapshotCacheEntry] = [:]
     private var quotaPerUnitLoadedForSession = false
+    private var remoteSessionGeneration: UInt = 0
+    private var activeUsageRefreshID: UUID?
 
     @ObservationIgnored
     private let dashboardDataMemoizer = SingleEntryMemoizer<DashboardDerivedDataKey, DashboardData>()
@@ -469,11 +476,18 @@ final class AppState {
 
     func refreshUsageSnapshot(for range: TimeRange) async -> SnapshotRefreshResult {
         guard let client = authenticatedClient() else { return .failure }
+        guard let requestedUserID = config?.userID else { return .failure }
         guard !isLoadingData else { return .failure }
+        let requestedSessionGeneration = remoteSessionGeneration
+        let refreshID = UUID()
+        activeUsageRefreshID = refreshID
         isLoadingData = true
         defer {
-            hasLoadedUsageData = true
-            isLoadingData = false
+            if activeUsageRefreshID == refreshID {
+                activeUsageRefreshID = nil
+                hasLoadedUsageData = true
+                isLoadingData = false
+            }
         }
         await Task.yield()
 
@@ -482,7 +496,18 @@ final class AppState {
 
         do {
             let response = try await client.fetchUsage(range: requestedQueryRange)
-            applyUsageResponse(response, for: range)
+            guard requestedSessionGeneration == remoteSessionGeneration,
+                  config?.userID == requestedUserID
+            else {
+                return .failure
+            }
+            guard applyUsageResponse(response, for: range) else {
+                syncStatus = .idle
+                lastSyncMessage = "new 系统正在准备统计快照"
+                isLoadingHeatmap = false
+                authenticationError = nil
+                return .failure
+            }
             syncStatus = syncStatus == .syncing ? .syncing : .idle
             lastSyncTime = dependencies.now()
             lastSyncMessage = "new 系统数据已更新"
@@ -490,6 +515,11 @@ final class AppState {
             authenticationError = nil
             return .success
         } catch {
+            guard requestedSessionGeneration == remoteSessionGeneration,
+                  config?.userID == requestedUserID
+            else {
+                return .failure
+            }
             isLoadingHeatmap = false
             if usageCache[range] == nil {
                 timeRange = loadedTimeRange
@@ -510,41 +540,49 @@ final class AppState {
         }
     }
 
+    @discardableResult
     func applyUsageResponse(
         _ response: UsageResponse,
         for range: TimeRange,
         updatedAt: Date? = nil
-    ) {
+    ) -> Bool {
+        let containsUsage = usageResponseContainsUsage(response)
+        guard response.coverage?.complete != false || containsUsage else {
+            isUsageSnapshotPreparing = true
+            return false
+        }
+        isUsageSnapshotPreparing = false
         usageCache[range] = UsageSnapshotCacheEntry(
             response: response,
             updatedAt: updatedAt ?? dependencies.now()
         )
         presentUsageResponse(response, for: range)
+        return true
     }
 
     func selectTimeRange(_ range: TimeRange) async {
         guard timeRange != range else { return }
         timeRange = range
-        let hasCachedSnapshot = usageCache[range] != nil
         if let cached = usageCache[range] {
             presentUsageResponse(cached.response, for: range)
             if dependencies.now().timeIntervalSince(cached.updatedAt) <= 60 {
                 return
             }
         }
-        let didRefresh = await visibleRefreshCoordinator.requestImmediateRefresh(.usage)
-        if !didRefresh, !hasCachedSnapshot {
+        await visibleRefreshCoordinator.requestImmediateRefresh(.usage)
+        if usageCache[range] == nil {
             timeRange = loadedTimeRange
         }
     }
 
     private func presentUsageResponse(_ response: UsageResponse, for range: TimeRange) {
+        isUsageSnapshotPreparing = false
         withAnimation(.easeInOut(duration: 0.22)) {
             buckets = response.buckets
             sessions = response.sessions ?? []
             recentRequests = response.recentRequests
             usageCoverage = response.coverage
-            hasAnyData = response.hasAnyData
+            hasAnyData = usageResponseContainsUsage(response)
             heatmapBuckets = response.buckets
             loadedTimeRange = range
             dashboardRenderGeneration &+= 1
@@ -726,6 +764,10 @@ final class AppState {
         _ user: AuthenticatedUser,
         apiURL: String
     ) async {
+        remoteSessionGeneration &+= 1
+        activeUsageRefreshID = nil
+        isLoadingData = false
+        visibleRefreshCoordinator.resetSession()
         let config = VibeUsageConfig(
             apiKey: nil,
             apiUrl: apiURL,
@@ -747,6 +789,8 @@ final class AppState {
     }
 
     private func clearRemoteSession() {
+        remoteSessionGeneration &+= 1
+        activeUsageRefreshID = nil
         let apiURL = config?.apiUrl ?? AppConfig.defaultApiUrl
         if let url = URL(string: apiURL), let cookies = HTTPCookieStorage.shared.cookies(for: url) {
             for cookie in cookies {
@@ -774,6 +818,7 @@ final class AppState {
         timeRange = .oneDay
         loadedTimeRange = .oneDay
         hasAnyData = false
+        isUsageSnapshotPreparing = false
         hasLoadedUsageData = false
         isLoadingData = false
         isLoadingHeatmap = false
@@ -785,7 +830,17 @@ final class AppState {
         dashboardDataMemoizer.removeAll()
         activityHeatmapMemoizer.removeAll()
         visibleRefreshCoordinator.stop()
+        visibleRefreshCoordinator.resetSession()
         syncStatus = .idle
+        lastSyncTime = nil
+        lastSyncMessage = nil
+    }
+
+    private func usageResponseContainsUsage(_ response: UsageResponse) -> Bool {
+        response.hasAnyData
+            || !response.buckets.isEmpty
+            || !(response.sessions?.isEmpty ?? true)
+            || !(response.recentRequests?.isEmpty ?? true)
     }
 
     private func updateAccountMetrics(from user: AuthenticatedUser) {

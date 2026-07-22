@@ -4,9 +4,9 @@ import SwiftUI
 struct MainWindowConfiguration {
     static let standard = MainWindowConfiguration(
         title: "Vibe Usage",
-        defaultContentSize: NSSize(width: 960, height: 720),
-        minimumContentSize: NSSize(width: 760, height: 560),
-        frameAutosaveName: "VibeUsageMainWindow"
+        defaultContentSize: NSSize(width: 1280, height: 820),
+        minimumContentSize: NSSize(width: 1024, height: 680),
+        frameAutosaveName: "VibeUsageDashboardWindowV3"
     )
 
     let title: String
@@ -19,25 +19,23 @@ struct MainWindowConfiguration {
 final class MainWindowController: NSObject, NSWindowDelegate {
     private let rootView: AnyView
     private let configuration: MainWindowConfiguration
-    private let onPresent: () -> Void
+    private let onVisibilityChange: (Bool) -> Void
     private var window: NSWindow?
 
     init<Content: View>(
         rootView: Content,
         configuration: MainWindowConfiguration = .standard,
-        onPresent: @escaping () -> Void = {}
+        onVisibilityChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.rootView = AnyView(rootView)
         self.configuration = configuration
-        self.onPresent = onPresent
+        self.onVisibilityChange = onVisibilityChange
         super.init()
     }
 
     convenience init(appState: AppState) {
-        self.init(rootView: PopoverView().environment(appState)) {
-            Task { await appState.fetchUsageDataIfNeeded() }
-            Task { await appState.refreshCodexRateLimitIfNeeded() }
-            Task { await appState.refreshClaudeRateLimitIfNeeded() }
+        self.init(rootView: PopoverView().environment(appState)) { visible in
+            appState.setMainWindowVisible(visible)
         }
     }
 
@@ -77,7 +75,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        onPresent()
+        onVisibilityChange(true)
     }
 
     func toggle() {
@@ -87,6 +85,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
 
         if window.isVisible && !window.isMiniaturized {
+            onVisibilityChange(false)
             window.orderOut(nil)
         } else {
             show()
@@ -94,7 +93,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        onVisibilityChange(false)
         sender.orderOut(nil)
         return false
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        onVisibilityChange(false)
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        onVisibilityChange(true)
     }
 }

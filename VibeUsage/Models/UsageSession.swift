@@ -28,6 +28,6 @@ struct UsageSession: Codable, Identifiable, Equatable {
     /// Absolute Date parsed from `firstMessageAt`. Used by client-side
     /// time-window filters (see `TimeRange.startCutoff` for `.today`).
     var date: Date? {
-        ISO8601DateFormatter().date(from: firstMessageAt)
+        ISO8601Parser.date(from: firstMessageAt)
     }
 }

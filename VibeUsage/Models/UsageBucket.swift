@@ -1,5 +1,46 @@
 import Foundation
 
+enum UsageGranularity: Equatable, Sendable, Codable {
+    case hour
+    case day
+    case month
+    case mixed
+    case unknown(String)
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "hour": self = .hour
+        case "day": self = .day
+        case "month": self = .month
+        case "mixed": self = .mixed
+        default: self = .unknown(value)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        let value: String
+        switch self {
+        case .hour: value = "hour"
+        case .day: value = "day"
+        case .month: value = "month"
+        case .mixed: value = "mixed"
+        case .unknown(let rawValue): value = rawValue
+        }
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
+}
+
+struct UsageCoverage: Codable, Equatable, Sendable {
+    let requestedStart: String?
+    let requestedEnd: String?
+    let dataStart: String?
+    let dataEnd: String?
+    let complete: Bool
+    let granularity: UsageGranularity
+}
+
 struct UsageBucket: Codable, Identifiable, Equatable {
     var id: String {
         "\(bucketStart)-\(source)-\(model)-\(project)-\(hostname)"
@@ -20,15 +61,16 @@ struct UsageBucket: Codable, Identifiable, Equatable {
     let totalTokens: Int
     let estimatedCost: Double?
 
-    /// Total token volume, matching the web dashboard and ccusage-style totals:
-    /// input + output + reasoning + cached input.
+    /// The new system is the source of truth for token normalization. Different
+    /// providers account for cached and reasoning tokens differently, so the
+    /// desktop must not reconstruct this value from individual fields.
     var computedTotal: Int {
-        inputTokens + outputTokens + reasoningOutputTokens + cachedInputTokens
+        totalTokens
     }
 
     /// Date parsed from bucketStart ISO string
     var date: Date? {
-        ISO8601DateFormatter().date(from: bucketStart)
+        ISO8601Parser.date(from: bucketStart)
     }
 
     /// Day string (yyyy-MM-dd) for grouping
@@ -42,8 +84,44 @@ struct UsageBucket: Codable, Identifiable, Equatable {
     }
 }
 
+struct UsageRequestRecord: Codable, Identifiable, Equatable {
+    let id: Int
+    let createdAt: String
+    let source: String
+    let model: String
+    let project: String
+    let inputTokens: Int
+    let outputTokens: Int
+    let cachedInputTokens: Int
+    let reasoningOutputTokens: Int
+    let totalTokens: Int
+    let estimatedCost: Double?
+    let firstResponseTimeMs: Double?
+    let reasoningEffort: String?
+
+    var date: Date? {
+        ISO8601Parser.date(from: createdAt)
+    }
+}
+
 struct UsageResponse: Codable {
     let buckets: [UsageBucket]
     let sessions: [UsageSession]?
+    let recentRequests: [UsageRequestRecord]?
+    let coverage: UsageCoverage?
     let hasAnyData: Bool
+
+    init(
+        buckets: [UsageBucket],
+        sessions: [UsageSession]?,
+        recentRequests: [UsageRequestRecord]? = nil,
+        coverage: UsageCoverage? = nil,
+        hasAnyData: Bool
+    ) {
+        self.buckets = buckets
+        self.sessions = sessions
+        self.recentRequests = recentRequests
+        self.coverage = coverage
+        self.hasAnyData = hasAnyData
+    }
 }

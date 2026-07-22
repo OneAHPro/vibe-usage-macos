@@ -1,48 +1,4 @@
 import SwiftUI
-import AppKit
-
-/// Tracks whether the user is mid-scroll anywhere in the app.
-///
-/// SwiftUI's `.onHover`/`.onContinuousHover` keep firing while a `ScrollView`
-/// scrolls, because the content slides under the (stationary) cursor. Every
-/// fire mutates hover state and re-renders the chart, which competes with the
-/// scroll animation on the main thread and makes the popover scroll stutter /
-/// feel stuck whenever the pointer is over the 趋势 chart. We watch raw
-/// `.scrollWheel` events and expose an `isScrolling` flag (debounced so trackpad
-/// momentum doesn't flicker it) the chart uses to suspend hover during a scroll.
-@MainActor
-@Observable
-private final class ScrollWatcher {
-    private(set) var isScrolling = false
-    private var monitor: Any?
-    private var resetTask: Task<Void, Never>?
-
-    func start() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            Task { @MainActor in self?.bump() }
-            return event // never consume — the ScrollView still needs it
-        }
-    }
-
-    func stop() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-        resetTask?.cancel()
-        resetTask = nil
-        isScrolling = false
-    }
-
-    private func bump() {
-        if !isScrolling { isScrolling = true } // set once per gesture (avoid notify storm)
-        resetTask?.cancel()
-        resetTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
-            if Task.isCancelled { return }
-            self?.isScrolling = false
-        }
-    }
-}
 
 private struct BarData: Identifiable, Equatable {
     let id: String // dayKey or hourKey
@@ -58,20 +14,11 @@ struct BarChartView: View {
     @Environment(AppState.self) private var appState
 
     private var isHourly: Bool {
-        appState.timeRange.isHourly
+        appState.presentedTimeRange.isHourly
     }
 
     private var filtered: [UsageBucket] {
-        let cutoff = appState.timeRange.startCutoff
-        return appState.buckets.filter { bucket in
-            if let cutoff, let date = bucket.date, date < cutoff { return false }
-            let f = appState.filters
-            if !f.sources.isEmpty && !f.sources.contains(bucket.source) { return false }
-            if !f.models.isEmpty && !f.models.contains(bucket.model) { return false }
-            if !f.projects.isEmpty && !f.projects.contains(bucket.project) { return false }
-            if !f.hostnames.isEmpty && !f.hostnames.contains(bucket.hostname) { return false }
-            return true
-        }
+        appState.dashboardData.buckets
     }
 
     private var chartData: [BarData] {
@@ -106,19 +53,16 @@ struct BarChartView: View {
             let now = Date()
             let currentHour = calendar.dateInterval(of: .hour, for: now)?.start ?? now
             let start: Date = {
-                if appState.timeRange == .today {
+                if appState.presentedTimeRange == .today {
                     return calendar.startOfDay(for: now)
                 }
                 return calendar.date(byAdding: .hour, value: -23, to: currentHour) ?? currentHour
             }()
             var result: [BarData] = []
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
 
             var hour = start
             while hour <= currentHour {
-                let iso = isoFormatter.string(from: hour)
-                let key = String(iso.prefix(13))
+                let key = ISO8601Parser.utcHourKey(from: hour)
                 result.append(buckets[key] ?? BarData(id: key))
                 guard let next = calendar.date(byAdding: .hour, value: 1, to: hour) else { break }
                 hour = next
@@ -132,13 +76,9 @@ struct BarChartView: View {
             var result: [BarData] = []
 
             for i in stride(from: numDays - 1, through: 0, by: -1) {
-                let endDay = appState.timeRange == .custom
-                    ? calendar.startOfDay(for: appState.normalizedCustomRange.to)
-                    : today
+                let endDay = today
                 if let date = calendar.date(byAdding: .day, value: -i, to: endDay) {
-                    let formatter = DateFormatter()
-                    formatter.dateFormat = "yyyy-MM-dd"
-                    let key = formatter.string(from: date)
+                    let key = Formatters.dayKey(from: date, calendar: calendar)
                     result.append(buckets[key] ?? BarData(id: key))
                 }
             }
@@ -146,20 +86,7 @@ struct BarChartView: View {
         }
     }
 
-    private var maxTotal: Int {
-        max(chartData.map(\.total).max() ?? 0, 1)
-    }
-
-    private var maxCost: Double {
-        max(chartData.map(\.cost).max() ?? 0, 0.001)
-    }
-
-    private var maxActiveMinutes: Double {
-        max(chartData.map(\.activeMinutes).max() ?? 0, 0.1)
-    }
-
-    private var labelInterval: Int {
-        let count = chartData.count
+    private func labelInterval(for count: Int) -> Int {
         if isHourly {
             if count <= 12 { return 3 }
             if count <= 18 { return 4 }
@@ -175,11 +102,15 @@ struct BarChartView: View {
 
     var body: some View {
         @Bindable var state = appState
+        let data = chartData
+        let maximumTotal = max(data.map(\.total).max() ?? 0, 1)
+        let maximumCost = max(data.map(\.cost).max() ?? 0, 0.001)
+        let maximumActiveMinutes = max(data.map(\.activeMinutes).max() ?? 0, 0.1)
 
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text(isHourly ? "每小时趋势" : "每日趋势")
+                Label(isHourly ? "每小时趋势" : "每日趋势", systemImage: "waveform.path.ecg")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(AppTheme.secondaryText)
                     .lineLimit(1)
@@ -215,21 +146,21 @@ struct BarChartView: View {
             // plus the single hover region inside ChartContent, keeps the
             // popover ScrollView smooth when the cursor passes over the chart.
             ChartContent(
-                data: chartData,
+                data: data,
                 chartMode: state.chartMode,
                 isHourly: isHourly,
-                maxTotal: maxTotal,
-                maxCost: maxCost,
-                maxActiveMinutes: maxActiveMinutes,
-                labelInterval: labelInterval
+                maxTotal: maximumTotal,
+                maxCost: maximumCost,
+                maxActiveMinutes: maximumActiveMinutes,
+                labelInterval: labelInterval(for: data.count)
             )
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity)
         .background(AppTheme.surface)
-        .cornerRadius(4)
+        .cornerRadius(7)
         .overlay(
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 7)
                 .stroke(AppTheme.separator, lineWidth: 1)
         )
     }
@@ -247,15 +178,12 @@ private struct ChartContent: View {
 
     private let yAxisWidth: CGFloat = 44
     private let chartAxisGap: CGFloat = 6
-    private let xLabelWidth: CGFloat = 46
 
     @State private var hoveredIndex: Int?
     @State private var scroll = ScrollWatcher()
 
     private var visibleLabelIndices: [Int] {
-        guard !data.isEmpty else { return [] }
-        let interval = max(labelInterval, 1)
-        return Array(stride(from: 0, to: data.count, by: interval))
+        DashboardLayout.visibleChartLabelIndices(count: data.count, interval: labelInterval)
     }
 
     var body: some View {
@@ -377,7 +305,7 @@ private struct ChartContent: View {
                 Rectangle()
                     .fill(.clear)
                     .frame(width: chartAxisGap)
-                GeometryReader { geo in
+                GeometryReader { geometry in
                     ZStack(alignment: .topLeading) {
                         ForEach(visibleLabelIndices, id: \.self) { index in
                             if data.indices.contains(index) {
@@ -386,22 +314,22 @@ private struct ChartContent: View {
                                     .font(.system(size: 11))
                                     .foregroundStyle(AppTheme.secondaryText)
                                     .lineLimit(1)
-                                    .frame(width: xLabelWidth, alignment: .center)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .frame(width: DashboardLayout.chartAxisLabelWidth)
                                     .position(
-                                        x: xLabelX(for: index, plotWidth: geo.size.width),
-                                        y: 8
+                                        x: xLabelX(for: index, plotWidth: geometry.size.width),
+                                        y: 12
                                     )
                             }
                         }
                     }
-                    .clipped()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(height: 16)
+                .frame(minWidth: 0, maxWidth: .infinity)
             }
             .padding(.top, 8)
+            .frame(height: 28)
         }
-        .animation(.easeInOut(duration: 0.3), value: data)
-        .animation(.easeInOut(duration: 0.25), value: chartMode)
         .onAppear { scroll.start() }
         .onDisappear { scroll.stop() }
         .onChange(of: scroll.isScrolling) { _, scrolling in
@@ -414,7 +342,7 @@ private struct ChartContent: View {
     private func xLabelX(for index: Int, plotWidth: CGFloat) -> CGFloat {
         guard !data.isEmpty, plotWidth > 0 else { return 0 }
         let raw = plotWidth * (CGFloat(index) + 0.5) / CGFloat(data.count)
-        let inset = min(xLabelWidth / 2, plotWidth / 2)
+        let inset = min(DashboardLayout.chartAxisLabelWidth / 2, plotWidth / 2)
         return min(max(raw, inset), max(inset, plotWidth - inset))
     }
 

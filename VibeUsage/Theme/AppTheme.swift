@@ -27,6 +27,7 @@ enum AppTheme {
     static var quaternaryText: Color { color(.quaternaryText) }
     static var selectionBackground: Color { color(.selectionBackground) }
     static var tooltipBackground: Color { color(.tooltipBackground) }
+    static let costAccent = Color(red: 0.06, green: 0.73, blue: 0.51)
 
     static func nsColor(_ token: Token) -> NSColor {
         switch token {
@@ -37,7 +38,12 @@ enum AppTheme {
         case .raisedSurface:
             return .textBackgroundColor
         case .subtleSurface:
-            return .underPageBackgroundColor
+            return NSColor(name: "VibeUsageDashboardCanvas") { appearance in
+                if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                    return NSColor(srgbRed: 0.067, green: 0.075, blue: 0.086, alpha: 1)
+                }
+                return NSColor(srgbRed: 0.957, green: 0.961, blue: 0.969, alpha: 1)
+            }
         case .separator:
             return .separatorColor
         case .primaryText:

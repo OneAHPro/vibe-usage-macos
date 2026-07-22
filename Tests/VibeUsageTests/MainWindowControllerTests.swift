@@ -12,8 +12,9 @@ struct MainWindowControllerTests {
         let window = controller.makeWindowIfNeeded()
 
         #expect(window.title == "Vibe Usage")
-        #expect(window.contentRect(forFrameRect: window.frame).size == NSSize(width: 960, height: 720))
-        #expect(window.contentMinSize == NSSize(width: 760, height: 560))
+        #expect(window.contentRect(forFrameRect: window.frame).size == NSSize(width: 1280, height: 820))
+        #expect(window.contentMinSize == NSSize(width: 1024, height: 680))
+        #expect(MainWindowConfiguration.standard.frameAutosaveName == "VibeUsageDashboardWindowV3")
         #expect(window.styleMask.contains(.titled))
         #expect(window.styleMask.contains(.closable))
         #expect(window.styleMask.contains(.miniaturizable))
@@ -33,5 +34,26 @@ struct MainWindowControllerTests {
         #expect(controller.windowShouldClose(window) == false)
         #expect(window.isVisible == false)
         #expect(controller.makeWindowIfNeeded() === window)
+    }
+
+    @Test
+    func reportsShowHideMinimizeAndRestoreVisibility() {
+        var visibility: [Bool] = []
+        let controller = MainWindowController(
+            rootView: EmptyView(),
+            onVisibilityChange: { visibility.append($0) }
+        )
+        let window = controller.makeWindowIfNeeded()
+
+        controller.show()
+        controller.windowDidMiniaturize(
+            Notification(name: NSWindow.didMiniaturizeNotification, object: window)
+        )
+        controller.windowDidDeminiaturize(
+            Notification(name: NSWindow.didDeminiaturizeNotification, object: window)
+        )
+        _ = controller.windowShouldClose(window)
+
+        #expect(visibility == [true, false, true, false])
     }
 }

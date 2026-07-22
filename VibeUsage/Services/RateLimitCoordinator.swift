@@ -29,8 +29,8 @@ final class RateLimitCoordinator {
     }
 
     /// Refresh Codex only if we haven't refreshed within `maxAge` seconds.
-    /// Mirrors `fetchUsageDataIfNeeded` so popover-open doesn't hammer the
-    /// session-file walk when the user toggles the popover repeatedly.
+    /// Uses the same freshness principle as remote snapshots so popover-open
+    /// does not repeat the local session-file walk on rapid toggles.
     func refreshCodexIfNeeded(maxAge: TimeInterval = 60) async {
         if let last = lastCodexFetchAt, Date().timeIntervalSince(last) < maxAge {
             return

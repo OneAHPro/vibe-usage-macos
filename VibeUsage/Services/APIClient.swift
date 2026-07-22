@@ -1,13 +1,165 @@
 import Foundation
 
-/// HTTP client for vibecafe.ai API (authenticated with API Key)
+struct AuthenticatedUser: Codable, Equatable, Sendable {
+    let id: Int
+    let username: String
+    let displayName: String?
+    let role: Int
+    let status: Int
+    let group: String
+    let quota: Int?
+    let usedQuota: Int?
+    let requestCount: Int?
+
+    init(
+        id: Int,
+        username: String,
+        displayName: String?,
+        role: Int,
+        status: Int,
+        group: String,
+        quota: Int? = nil,
+        usedQuota: Int?,
+        requestCount: Int?
+    ) {
+        self.id = id
+        self.username = username
+        self.displayName = displayName
+        self.role = role
+        self.status = status
+        self.group = group
+        self.quota = quota
+        self.usedQuota = usedQuota
+        self.requestCount = requestCount
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, username, role, status, group, quota
+        case displayName = "display_name"
+        case usedQuota = "used_quota"
+        case requestCount = "request_count"
+    }
+}
+
+enum LoginOutcome: Equatable, Sendable {
+    case authenticated(AuthenticatedUser)
+    case requiresTwoFactor
+}
+
+struct APIEnvelope<Payload: Decodable>: Decodable {
+    let success: Bool
+    let message: String
+    let data: Payload?
+}
+
+private struct LoginPayload: Decodable {
+    let requireTwoFactor: Bool?
+    let id: Int?
+    let username: String?
+    let displayName: String?
+    let role: Int?
+    let status: Int?
+    let group: String?
+    let quota: Int?
+    let usedQuota: Int?
+    let requestCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, username, role, status, group, quota
+        case requireTwoFactor = "require_2fa"
+        case displayName = "display_name"
+        case usedQuota = "used_quota"
+        case requestCount = "request_count"
+    }
+
+    var authenticatedUser: AuthenticatedUser? {
+        guard let id, let username, let role, let status, let group else { return nil }
+        return AuthenticatedUser(
+            id: id,
+            username: username,
+            displayName: displayName,
+            role: role,
+            status: status,
+            group: group,
+            quota: quota,
+            usedQuota: usedQuota,
+            requestCount: requestCount
+        )
+    }
+}
+
+struct EmptyPayload: Decodable {}
+
+private struct RemoteStatus: Decodable, Sendable {
+    let quotaPerUnit: Double
+
+    enum CodingKeys: String, CodingKey {
+        case quotaPerUnit = "quota_per_unit"
+    }
+}
+
+/// HTTP client for the new system. URLSession owns the HttpOnly session cookie;
+/// the app only persists the user id required by New-Api-User.
 struct APIClient: Sendable {
     let baseURL: String
-    let apiKey: String
+    let userID: Int?
+    let session: URLSession
+
+    init(baseURL: String, userID: Int? = nil, session: URLSession = .shared) {
+        self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        self.userID = userID
+        self.session = session
+    }
+
+    func login(username: String, password: String) async throws -> LoginOutcome {
+        let body = try JSONEncoder().encode(["username": username, "password": password])
+        let envelope: APIEnvelope<LoginPayload> = try await send(
+            path: "/api/user/login",
+            method: "POST",
+            body: body,
+            authenticated: false
+        )
+        guard let payload = envelope.data else { throw APIError.invalidResponse }
+        if payload.requireTwoFactor == true {
+            return .requiresTwoFactor
+        }
+        guard let user = payload.authenticatedUser else { throw APIError.invalidResponse }
+        return .authenticated(user)
+    }
+
+    func verifyTwoFactor(code: String) async throws -> AuthenticatedUser {
+        let body = try JSONEncoder().encode(["code": code])
+        let envelope: APIEnvelope<LoginPayload> = try await send(
+            path: "/api/user/login/2fa",
+            method: "POST",
+            body: body,
+            authenticated: false
+        )
+        guard let user = envelope.data?.authenticatedUser else { throw APIError.invalidResponse }
+        return user
+    }
+
+    func fetchCurrentUser() async throws -> AuthenticatedUser {
+        let envelope: APIEnvelope<AuthenticatedUser> = try await send(path: "/api/user/self")
+        guard let user = envelope.data else { throw APIError.invalidResponse }
+        return user
+    }
+
+    func logout() async throws {
+        let _: APIEnvelope<EmptyPayload> = try await send(path: "/api/user/logout")
+    }
+
+    func fetchLeaderboard() async throws -> LeaderboardData {
+        let envelope: APIEnvelope<LeaderboardData> = try await send(
+            path: "/api/user/leaderboard"
+        )
+        guard let data = envelope.data else { throw APIError.invalidResponse }
+        return data
+    }
 
     /// Fetch usage buckets for the dashboard.
     func fetchUsage(range: UsageQueryRange) async throws -> UsageResponse {
-        guard var components = URLComponents(string: "\(baseURL)/api/usage") else {
+        guard var components = URLComponents(string: "\(baseURL)/api/desktop/usage") else {
             throw APIError.invalidURL
         }
         var queryItems = range.queryItems
@@ -15,53 +167,117 @@ struct APIClient: Sendable {
         components.queryItems = queryItems
         guard let url = components.url else { throw APIError.invalidURL }
 
-        debugLog("[APIClient] GET \(url.absoluteString)")
-        debugLog("[APIClient] Authorization: Bearer \(apiKey.prefix(12))...")
-
         var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpMethod = "GET"
+        if let userID {
+            request.setValue(String(userID), forHTTPHeaderField: "New-Api-User")
+        }
         request.timeoutInterval = 30
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            debugLog("[APIClient] ERROR: invalid response type")
-            throw APIError.invalidResponse
-        }
-
-        let body = String(data: data, encoding: .utf8) ?? "(non-utf8)"
-        debugLog("[APIClient] Status: \(httpResponse.statusCode), Body: \(body.prefix(200))")
-
-        switch httpResponse.statusCode {
-        case 200:
-            let decoder = JSONDecoder()
-            return try decoder.decode(UsageResponse.self, from: data)
-        case 401:
-            throw APIError.unauthorized
-        default:
-            throw APIError.httpError(httpResponse.statusCode)
-        }
+        let envelope: APIEnvelope<UsageResponse> = try await send(request: request)
+        guard let usage = envelope.data else { throw APIError.invalidResponse }
+        return usage
     }
 
-    /// Validate API key by fetching usage data (GET /api/usage?days=1)
-    /// Returns the response data if valid, so we can use it immediately.
-    func validateKeyAndFetch() async throws -> UsageResponse {
-        // Reuse fetchUsage — 401 means invalid key
-        return try await fetchUsage(range: .days(1))
+    func fetchQuotaPerUnit() async -> Double {
+        do {
+            let envelope: APIEnvelope<RemoteStatus> = try await send(
+                path: "/api/status",
+                authenticated: false
+            )
+            if let value = envelope.data?.quotaPerUnit, value > 0 {
+                return value
+            }
+        } catch {
+            debugLog("[APIClient] quota_per_unit fallback: \(error.localizedDescription)")
+        }
+        return 500_000
+    }
+
+    func send<Payload: Decodable>(
+        path: String,
+        method: String = "GET",
+        body: Data? = nil,
+        authenticated: Bool = true
+    ) async throws -> APIEnvelope<Payload> {
+        guard let url = URL(string: "\(baseURL)\(path)") else { throw APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = body
+        request.timeoutInterval = 30
+        if body != nil {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        if authenticated, let userID {
+            request.setValue(String(userID), forHTTPHeaderField: "New-Api-User")
+        }
+        return try await send(request: request)
+    }
+
+    func send<Payload: Decodable>(request: URLRequest) async throws -> APIEnvelope<Payload> {
+        let data = try await sendRaw(request: request)
+        let envelope = try JSONDecoder().decode(APIEnvelope<Payload>.self, from: data)
+        guard envelope.success else {
+            throw APIError.server(envelope.message.isEmpty ? "服务器请求失败" : envelope.message)
+        }
+        return envelope
+    }
+
+    func sendRaw(request: URLRequest) async throws -> Data {
+        debugLog("[APIClient] \(request.httpMethod ?? "GET") \(request.url?.path ?? "")")
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        if httpResponse.statusCode == 401 {
+            throw APIError.unauthorized
+        }
+        if httpResponse.statusCode == 429 {
+            throw APIError.rateLimited(retryAfter: Self.retryAfterDate(from: httpResponse))
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+
+        return data
+    }
+
+    private static func retryAfterDate(
+        from response: HTTPURLResponse,
+        now: Date = Date()
+    ) -> Date? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else { return nil }
+
+        if let seconds = TimeInterval(raw), seconds >= 0 {
+            return now.addingTimeInterval(seconds)
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss zzz"
+        return formatter.date(from: raw)
     }
 
     enum APIError: LocalizedError {
         case invalidURL
         case invalidResponse
         case unauthorized
+        case rateLimited(retryAfter: Date?)
         case httpError(Int)
+        case server(String)
 
         var errorDescription: String? {
             switch self {
             case .invalidURL: "URL 无效"
             case .invalidResponse: "服务器响应异常"
-            case .unauthorized: "API Key 无效"
+            case .unauthorized: "登录已过期，请重新登录"
+            case .rateLimited: "请求过于频繁，请稍后再试"
             case .httpError(let code): "HTTP 错误 \(code)"
+            case .server(let message): message
             }
         }
     }
@@ -71,6 +287,13 @@ enum UsageQueryRange: Sendable {
     case days(Int)
     case from(Date)
     case custom(from: Date, to: Date)
+    case exact(from: Date, to: Date)
+    case all
+
+    var isAll: Bool {
+        if case .all = self { return true }
+        return false
+    }
 
     var queryItems: [URLQueryItem] {
         switch self {
@@ -83,6 +306,34 @@ enum UsageQueryRange: Sendable {
                 URLQueryItem(name: "from", value: Self.dateString(from)),
                 URLQueryItem(name: "to", value: Self.dateString(to)),
             ]
+        case .exact(let from, let to):
+            [
+                URLQueryItem(name: "from", value: Self.isoString(from)),
+                URLQueryItem(name: "to", value: Self.isoString(to)),
+            ]
+        case .all:
+            [
+                URLQueryItem(name: "all", value: "true"),
+                URLQueryItem(name: "from", value: Self.isoString(Date(timeIntervalSince1970: 0))),
+            ]
+        }
+    }
+
+    func dateInterval(now: Date, calendar: Calendar = .current) -> DateInterval {
+        switch self {
+        case .days(let days):
+            return DateInterval(start: now.addingTimeInterval(-Double(days) * 86_400), end: now)
+        case .from(let from):
+            return DateInterval(start: min(from, now), end: now)
+        case .custom(let from, let to):
+            let lower = calendar.startOfDay(for: min(from, to))
+            let upperDay = calendar.startOfDay(for: max(from, to))
+            let inclusiveUpper = calendar.date(byAdding: .day, value: 1, to: upperDay) ?? now
+            return DateInterval(start: min(lower, now), end: min(inclusiveUpper, now))
+        case .exact(let from, let to):
+            return DateInterval(start: min(from, to), end: max(from, to))
+        case .all:
+            return DateInterval(start: Date(timeIntervalSince1970: 0), end: now)
         }
     }
 

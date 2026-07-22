@@ -67,7 +67,7 @@ struct AccountManagementDataTests {
           "pay_methods":[{"name":"支付宝","type":"alipay","color":"blue"}],
           "min_topup":10,"stripe_min_topup":5,"waffo_min_topup":8,
           "waffo_pancake_min_topup":12,"amount_options":[10,20,50],
-          "discount":{"20":0.95}
+          "discount":{"20":0.95,"50":0.9,"100":1,"200":0,"300":-0.1,"400":1.1}
         }
         """#.utf8)
         let recordData = Data(#"""
@@ -85,6 +85,18 @@ struct AccountManagementDataTests {
         #expect(info.paymentMethods.first?.name == "支付宝")
         #expect(info.waffoPaymentMethods.first?.payMethodType == "CREDITCARD")
         #expect(info.discount[20] == 0.95)
+        #expect(info.topUpDiscountPresentation(for: 20)?.label == "9.5 折")
+        #expect(info.topUpDiscountPresentation(for: 50)?.label == "9 折")
+        #expect(info.topUpDiscountPresentation(for: 10) == nil)
+        #expect(info.topUpDiscountPresentation(for: 100) == nil)
+        #expect(info.topUpDiscountPresentation(for: 200) == nil)
+        #expect(info.topUpDiscountPresentation(for: 300) == nil)
+        #expect(info.topUpDiscountPresentation(for: 400) == nil)
+        #expect(TopUpDiscountPresentation(rate: .infinity) == nil)
+        #expect(TopUpDiscountPresentation(rate: .nan) == nil)
+        #expect(TopUpDiscountPresentation(rate: 0.944)?.label == "9.44 折")
+        #expect(TopUpDiscountPresentation(rate: 0.999)?.label == "9.99 折")
+        #expect(TopUpDiscountPresentation(rate: 0.94)?.label == "9.4 折")
         #expect(topUp.statusLabel == "成功")
         #expect(topUp.tradeNumber == "order-88")
     }

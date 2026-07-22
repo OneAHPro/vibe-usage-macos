@@ -25,6 +25,12 @@ enum DashboardLayout {
     static let walletOverviewCardMinimumHeight: CGFloat = 250
     static let walletCardHorizontalInset: CGFloat = 16
     static let walletPaymentPickerWidth: CGFloat = 180
+    static let walletRechargePresetHeight: CGFloat = 58
+    static let walletRechargePresetAmountFontSize: CGFloat = 16
+    static let walletRechargePresetDetailFontSize: CGFloat = 10
+    static let walletRechargePresetColumnCount = 4
+    static let walletRechargeAmountFieldWidth: CGFloat = 190
+    static let walletRechargeButtonWidth: CGFloat = 148
     static let chartAxisLabelWidth: CGFloat = 46
     static let heatmapWeekdayLabelWidth: CGFloat = 30
     static let heatmapColumnSpacing: CGFloat = 4
@@ -48,6 +54,11 @@ enum DashboardLayout {
 
     static func walletOverviewColumnCount(for width: CGFloat) -> Int {
         width >= walletOverviewMinimumColumnWidth * 2 + walletOverviewSpacing ? 2 : 1
+    }
+
+    static func walletRechargePresetRowCount(for optionCount: Int) -> Int {
+        guard optionCount > 0 else { return 0 }
+        return (optionCount + walletRechargePresetColumnCount - 1) / walletRechargePresetColumnCount
     }
 
     static func walletOverviewColumnWidth(

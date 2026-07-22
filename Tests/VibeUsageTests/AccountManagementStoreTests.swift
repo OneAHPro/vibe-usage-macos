@@ -106,6 +106,25 @@ struct AccountManagementStoreTests {
     }
 
     @Test
+    func walletRefreshSynchronizesNewSystemDiscountChanges() async {
+        let client = FakeAccountClient()
+        let store = WalletManagementStore()
+
+        client.topUpDiscountRate = 0.95
+        await store.loadIfNeeded(client: client)
+        #expect(store.topUpInfo?.topUpDiscountPresentation(for: 100)?.label == "9.5 折")
+
+        client.topUpDiscountRate = 0.9
+        await store.refresh(client: client, target: .recharge)
+        #expect(store.topUpInfo?.topUpDiscountPresentation(for: 100)?.label == "9 折")
+
+        client.topUpDiscountRate = 0.85
+        await store.refreshOverview(client: client)
+        #expect(store.topUpInfo?.topUpDiscountPresentation(for: 100)?.label == "8.5 折")
+        #expect(client.topUpInfoCalls == 3)
+    }
+
+    @Test
     func walletCheckoutCalculatesAmountAndCreatesOrderInOneAction() async {
         let client = FakeAccountClient()
         let store = WalletManagementStore()
@@ -456,6 +475,7 @@ private final class FakeAccountClient: AccountManagementClient {
     var tokenPageCalls = 0
     var userCalls = 0
     var topUpInfoCalls = 0
+    var topUpDiscountRate = 0.95
     var topUpPageCalls = 0
     var subscriptionPlanCalls = 0
     var subscriptionSelfCalls = 0
@@ -521,9 +541,10 @@ private final class FakeAccountClient: AccountManagementClient {
 
     func fetchTopUpInfo() async throws -> TopUpInfo {
         topUpInfoCalls += 1
+        let response = #"{"enable_online_topup":false,"amount_options":[100],"discount":{"100":\#(topUpDiscountRate)}}"#
         return try JSONDecoder().decode(
             TopUpInfo.self,
-            from: Data(#"{"enable_online_topup":false,"amount_options":[]}"#.utf8)
+            from: Data(response.utf8)
         )
     }
 

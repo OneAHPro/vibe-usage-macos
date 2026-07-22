@@ -255,11 +255,11 @@ struct WalletManagementView: View {
     }
 
     private var subscriptionEmptyState: some View {
-        HStack(spacing: 10) {
+        VStack(spacing: 8) {
             Image(systemName: "crown")
                 .font(.system(size: 18))
                 .foregroundStyle(AppTheme.tertiaryText)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(spacing: 3) {
                 Text("暂无生效订阅")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(AppTheme.secondaryText)
@@ -267,10 +267,9 @@ struct WalletManagementView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(AppTheme.tertiaryText)
             }
-            Spacer()
+            .multilineTextAlignment(.center)
         }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private func subscriptionRow(_ summary: SubscriptionSummary) -> some View {
@@ -469,67 +468,81 @@ struct WalletManagementView: View {
                         .disabled(store.isMutating)
                     }
                 } else {
-                    VStack(alignment: .leading, spacing: 9) {
-                        Text("充值金额")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(AppTheme.secondaryText)
-
-                        HStack(spacing: 9) {
-                            Text("¥")
-                                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                .foregroundStyle(AppTheme.costAccent)
-                            TextField("输入金额", text: $amountText)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(AppTheme.primaryText)
-                                .onSubmit { beginCheckout() }
-                                .disabled(store.isMutating)
-                        }
-                        .padding(.horizontal, 13)
-                        .frame(height: 52)
-                        .background(AppTheme.subtleSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7)
-                                .stroke(AppTheme.separator, lineWidth: 1)
-                        )
-
+                    VStack(alignment: .leading, spacing: 12) {
                         if let presets = store.topUpInfo?.amountOptions, !presets.isEmpty {
-                            HStack(spacing: 6) {
-                                ForEach(presets.prefix(5), id: \.self) { amount in
+                            Text("选择充值额度")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(AppTheme.secondaryText)
+
+                            LazyVGrid(
+                                columns: Array(
+                                    repeating: GridItem(.flexible(minimum: 0), spacing: 6),
+                                    count: DashboardLayout.walletRechargePresetColumnCount
+                                ),
+                                spacing: 6
+                            ) {
+                                ForEach(presets, id: \.self) { amount in
                                     quickAmountButton(amount)
                                 }
                             }
                         }
-                    }
-                }
 
-                Spacer(minLength: 14)
+                        HStack(alignment: .bottom, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("自定义金额")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(AppTheme.tertiaryText)
 
-                Button(action: beginCheckout) {
-                    HStack(spacing: 8) {
-                        if store.isMutating {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("正在创建支付订单…")
-                        } else {
-                            Image(systemName: "qrcode")
-                            Text("立即充值")
+                                HStack(spacing: 7) {
+                                    Text("¥")
+                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(AppTheme.costAccent)
+                                    TextField("输入金额", text: $amountText)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(AppTheme.primaryText)
+                                        .onSubmit { beginCheckout() }
+                                        .disabled(store.isMutating)
+                                }
+                                .padding(.horizontal, 11)
+                                .frame(
+                                    width: DashboardLayout.walletRechargeAmountFieldWidth,
+                                    height: 38
+                                )
+                                .background(AppTheme.subtleSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .stroke(AppTheme.separator, lineWidth: 1)
+                                )
+                            }
+
+                            if let discountPresentation = selectedTopUpDiscountPresentation {
+                                Label(
+                                    "\(discountPresentation.label) 优惠已应用",
+                                    systemImage: "tag.fill"
+                                )
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(AppTheme.costAccent)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.bottom, 11)
+                            } else {
+                                Spacer()
+                            }
+
+                            rechargeCheckoutButton
+                                .padding(.bottom, 1)
                         }
                     }
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 30)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(store.isMutating || paymentRequest == nil)
 
-                Label("支付二维码将在软件内显示，不会打开浏览器", systemImage: "lock.shield")
-                    .font(.system(size: 9))
-                    .foregroundStyle(AppTheme.tertiaryText)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 7)
+                if selectedPaymentID == "creem" {
+                    Spacer(minLength: 14)
+                    HStack {
+                        Spacer()
+                        rechargeCheckoutButton
+                    }
+                }
             }
         }
         .padding(DashboardLayout.walletCardHorizontalInset)
@@ -676,6 +689,14 @@ struct WalletManagementView: View {
         store.topUpInfo?.creemProducts.first(where: { $0.productID == selectedCreemProductID })
     }
 
+    private var selectedTopUpDiscountPresentation: TopUpDiscountPresentation? {
+        guard
+            let amount = Int(amountText.trimmingCharacters(in: .whitespacesAndNewlines)),
+            let info = store.topUpInfo
+        else { return nil }
+        return info.topUpDiscountPresentation(for: amount)
+    }
+
     private func hasSubscriptionPaymentOption(for plan: SubscriptionPlan) -> Bool {
         guard let info = store.topUpInfo else { return false }
         let hasEpay = info.enableOnlineTopUp && !info.paymentMethods.isEmpty
@@ -693,23 +714,69 @@ struct WalletManagementView: View {
 
     private func quickAmountButton(_ amount: Int) -> some View {
         let selected = amountText == String(amount)
+        let discountPresentation = store.topUpInfo?.topUpDiscountPresentation(for: amount)
         return Button {
             amountText = String(amount)
         } label: {
-            Text(String(amount))
-                .font(.system(size: 10, weight: selected ? .semibold : .medium, design: .monospaced))
-                .foregroundStyle(selected ? AppTheme.costAccent : AppTheme.secondaryText)
-                .frame(maxWidth: .infinity)
-                .frame(height: 26)
-                .background(selected ? AppTheme.costAccent.opacity(0.10) : AppTheme.subtleSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(selected ? AppTheme.costAccent.opacity(0.35) : AppTheme.separator, lineWidth: 1)
-                )
+            VStack(alignment: .leading, spacing: 5) {
+                Text("¥\(amount)")
+                    .font(.system(
+                        size: DashboardLayout.walletRechargePresetAmountFontSize,
+                        weight: .semibold,
+                        design: .monospaced
+                    ))
+                    .foregroundStyle(selected ? AppTheme.costAccent : AppTheme.primaryText)
+
+                if let discountPresentation {
+                    Text(discountPresentation.label)
+                        .font(.system(
+                            size: DashboardLayout.walletRechargePresetDetailFontSize,
+                            weight: .semibold
+                        ))
+                        .foregroundStyle(AppTheme.costAccent)
+                } else {
+                    Text("充值额度")
+                        .font(.system(size: DashboardLayout.walletRechargePresetDetailFontSize))
+                        .foregroundStyle(AppTheme.tertiaryText)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: DashboardLayout.walletRechargePresetHeight)
+            .contentShape(Rectangle())
+            .background(selected ? AppTheme.costAccent.opacity(0.10) : AppTheme.subtleSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(selected ? AppTheme.costAccent.opacity(0.45) : AppTheme.separator, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
         .disabled(store.isMutating)
+    }
+
+    private var rechargeCheckoutButton: some View {
+        Button(action: beginCheckout) {
+            HStack(spacing: 7) {
+                if store.isMutating {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("正在创建支付订单…")
+                } else {
+                    Image(systemName: "qrcode")
+                    Text("立即充值")
+                }
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
+        .frame(
+            width: DashboardLayout.walletRechargeButtonWidth,
+            height: 34
+        )
+        .disabled(store.isMutating || paymentRequest == nil)
     }
 
     private func beginCheckout() {

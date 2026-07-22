@@ -206,6 +206,31 @@ struct TopUpInfo: Decodable, Equatable, Sendable {
     }
 }
 
+struct TopUpDiscountPresentation: Equatable, Sendable {
+    let rate: Double
+    let label: String
+
+    init?(rate: Double) {
+        guard rate.isFinite, rate > 0, rate < 1 else { return nil }
+        self.rate = rate
+
+        guard let decimalRate = Decimal(
+            string: String(rate),
+            locale: Locale(identifier: "en_US_POSIX")
+        ) else { return nil }
+        let chineseDiscount = decimalRate * Decimal(10)
+        let displayValue = NSDecimalNumber(decimal: chineseDiscount).stringValue
+        label = "\(displayValue) 折"
+    }
+}
+
+extension TopUpInfo {
+    func topUpDiscountPresentation(for amount: Int) -> TopUpDiscountPresentation? {
+        guard let rate = discount[amount] else { return nil }
+        return TopUpDiscountPresentation(rate: rate)
+    }
+}
+
 struct TopUpRecord: Decodable, Identifiable, Equatable, Sendable {
     let id: Int
     let userID: Int

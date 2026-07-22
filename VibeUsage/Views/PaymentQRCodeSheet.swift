@@ -116,7 +116,7 @@ struct PaymentQRCodeSheet: View {
                 Text(presentation.title)
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(AppTheme.primaryText)
-                Text("\(presentation.paymentMethod) · 软件内扫码支付")
+                Text(presentation.paymentMethod)
                     .font(.system(size: 10))
                     .foregroundStyle(AppTheme.tertiaryText)
             }

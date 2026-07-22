@@ -1,4 +1,5 @@
 import Testing
+import AppKit
 import CoreGraphics
 import Foundation
 @testable import VibeUsage
@@ -27,11 +28,33 @@ struct DashboardLayoutTests {
         #expect(DashboardLayout.walletOverviewCardMinimumHeight >= 220)
         #expect(DashboardLayout.walletRechargePresetHeight >= 50)
         #expect(DashboardLayout.walletRechargePresetAmountFontSize >= 15)
-        #expect(DashboardLayout.walletRechargePresetDetailFontSize >= 10)
+        #expect(DashboardLayout.walletRechargePresetDetailFontSize >= 11)
         #expect(DashboardLayout.walletRechargePresetColumnCount == 4)
         #expect(DashboardLayout.walletRechargePresetRowCount(for: 7) == 2)
         #expect(DashboardLayout.walletRechargeAmountFieldWidth <= 220)
         #expect(DashboardLayout.walletRechargeButtonWidth <= 200)
+
+        let minimumPresetColumnWidth = (
+            DashboardLayout.walletOverviewMinimumColumnWidth
+                - DashboardLayout.walletCardHorizontalInset * 2
+                - DashboardLayout.walletRechargePresetGridSpacing * 3
+        ) / CGFloat(DashboardLayout.walletRechargePresetColumnCount)
+        let availablePresetTextWidth = minimumPresetColumnWidth
+            - DashboardLayout.walletRechargePresetHorizontalPadding * 2
+        let widestAmountWidth = ("¥4,000" as NSString).size(withAttributes: [
+            .font: NSFont.monospacedSystemFont(
+                ofSize: DashboardLayout.walletRechargePresetAmountFontSize,
+                weight: .semibold
+            ),
+        ]).width
+        let representativeDiscountWidth = ("9.44 折" as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(
+                ofSize: DashboardLayout.walletRechargePresetDetailFontSize,
+                weight: .semibold
+            ),
+        ]).width + 12
+        #expect(widestAmountWidth <= availablePresetTextWidth)
+        #expect(representativeDiscountWidth <= availablePresetTextWidth)
 
         let sideBySideFrames = DashboardLayout.walletOverviewFrames(
             width: defaultContentWidth,
@@ -207,13 +230,29 @@ struct DashboardLayoutTests {
         #expect(view.contains("在线充值"))
         #expect(view.contains("立即充值"))
         #expect(view.contains("正在创建支付订单"))
-        #expect(view.contains("下一步直接显示支付二维码"))
-        #expect(view.contains("选择充值额度"))
+        #expect(!view.contains("下一步直接显示支付二维码"))
+        #expect(!view.contains("购买将在软件内显示支付二维码"))
+        #expect(!view.contains("余额与套餐均以服务器数据为准"))
+        #expect(view.components(separatedBy: "Text(\"支付方式\")").count - 1 == 1)
+        #expect(view.contains("paymentOptions.count == 1"))
+        #expect(view.contains("singlePaymentMethodBadge"))
+        #expect(view.contains(".onChange(of: paymentOptionIDs)"))
+        #expect(view.contains(".onChange(of: creemProductIDs)"))
+        #expect(view.contains("Text(\"充值金额\")"))
+        #expect(!view.contains("选择充值额度"))
         #expect(view.contains("自定义金额"))
         #expect(view.contains("discountPresentation.label"))
+        #expect(!view.contains("优惠已应用"))
         #expect(view.contains("walletRechargePresetHeight"))
         #expect(view.contains("walletRechargePresetAmountFontSize"))
         #expect(view.contains("walletRechargePresetDetailFontSize"))
+        #expect(view.contains("VStack(alignment: .center, spacing: 4)"))
+        #expect(view.contains(".clipShape(Capsule())"))
+        #expect(view.contains("AppTheme.costAccent.opacity(0.12)"))
+        #expect(view.contains(".minimumScaleFactor(0.8)"))
+        #expect(view.contains(".accessibilityAddTraits(selected ? .isSelected : [])"))
+        #expect(!view.contains(".fixedSize()"))
+        #expect(!view.contains("Color.clear\n                        .frame(height: DashboardLayout.walletRechargePresetDetailFontSize)"))
         #expect(view.contains("walletRechargePresetColumnCount"))
         #expect(view.contains("ForEach(presets, id: \\.self)"))
         #expect(!view.contains("presets.prefix"))
@@ -231,6 +270,8 @@ struct DashboardLayoutTests {
         #expect(view.contains("选择产品"))
         #expect(view.contains("selectedCreemProductID"))
         #expect(view.contains("Formatters.formatMoney(product.price, currency: product.currency)"))
+        #expect(view.contains("Formatters.formatMoney(prepared.amount, currency: \"CNY\")"))
+        #expect(!view.contains("Formatters.formatCost(prepared.amount)"))
         #expect(view.contains("product.quota"))
         #expect(view.contains("充值记录"))
         #expect(view.contains("PaymentQRCodeSheet"))
@@ -241,7 +282,8 @@ struct DashboardLayoutTests {
             contentsOf: root.appendingPathComponent("VibeUsage/Views/PaymentQRCodeSheet.swift"),
             encoding: .utf8
         )
-        #expect(qrSheet.contains("\\(presentation.paymentMethod) · 软件内扫码支付"))
+        #expect(qrSheet.contains("Text(presentation.paymentMethod)"))
+        #expect(!qrSheet.contains("软件内扫码支付"))
         #expect(qrSheet.contains("static let context = CIContext"))
         #expect(qrSheet.contains("Task.detached(priority: .userInitiated)"))
         #expect(view.contains("let presentationPaymentMethod = selectedPaymentName"))
@@ -251,9 +293,33 @@ struct DashboardLayoutTests {
         #expect(purchaseSheet.contains("let presentationAmount = plan.priceLabel"))
         #expect(purchaseSheet.contains("选择支付方式"))
         #expect(purchaseSheet.contains("createSubscriptionCheckout"))
+        #expect(!purchaseSheet.contains("创建订单后将显示软件内支付二维码"))
         #expect(!view.contains("Timer"))
         #expect(!view.contains("WebView"))
         #expect(!purchaseSheet.contains("WebView"))
+    }
+
+    @Test
+    func walletPaymentSelectionReconcilesServerConfigurationChanges() {
+        #expect(
+            WalletSelectionReconciler.reconcile(
+                current: "stripe",
+                available: ["epay:wechat"]
+            ) == "epay:wechat"
+        )
+        #expect(
+            WalletSelectionReconciler.reconcile(
+                current: "epay:wechat",
+                available: ["epay:wechat", "creem"]
+            ) == "epay:wechat"
+        )
+        #expect(
+            WalletSelectionReconciler.reconcile(
+                current: "retired-product",
+                available: ["product-a", "product-b"]
+            ) == "product-a"
+        )
+        #expect(WalletSelectionReconciler.reconcile(current: "stripe", available: []) == "")
     }
 
     @Test

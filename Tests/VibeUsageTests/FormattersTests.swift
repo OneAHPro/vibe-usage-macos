@@ -40,6 +40,7 @@ struct FormattersTests {
     func formatsPaymentMoneyUsingItsRealCurrency() {
         #expect(Formatters.formatMoney(12.5, currency: "USD") == "$12.50")
         #expect(Formatters.formatMoney(12.5, currency: "EUR") == "€12.50")
+        #expect(Formatters.formatMoney(98, currency: "CNY") == "¥98.00")
         #expect(Formatters.formatMoney(12.5, currency: "JPY") == "JPY 12.50")
     }
 }

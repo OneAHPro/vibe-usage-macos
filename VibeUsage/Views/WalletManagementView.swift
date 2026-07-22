@@ -97,6 +97,12 @@ struct WalletManagementView: View {
         .onChange(of: store.requiresAuthentication) { _, required in
             if required { appState.handleAccountAuthenticationFailure() }
         }
+        .onChange(of: paymentOptionIDs) { _, _ in
+            selectDefaultPaymentIfNeeded()
+        }
+        .onChange(of: creemProductIDs) { _, _ in
+            selectDefaultPaymentIfNeeded()
+        }
         .onChange(of: appState.isConfigured) { _, isConfigured in
             if !isConfigured { cancelCheckout() }
         }
@@ -155,14 +161,9 @@ struct WalletManagementView: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(store.subscriptions.isEmpty ? "暂无生效订阅" : "\(store.subscriptions.count) 个订阅生效中")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(store.subscriptions.isEmpty ? AppTheme.tertiaryText : AppTheme.costAccent)
-                Text("余额与套餐均以服务器数据为准")
-                    .font(.system(size: 9))
-                    .foregroundStyle(AppTheme.tertiaryText)
-            }
+            Text(store.subscriptions.isEmpty ? "暂无生效订阅" : "\(store.subscriptions.count) 个订阅生效中")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(store.subscriptions.isEmpty ? AppTheme.tertiaryText : AppTheme.costAccent)
 
             Button("刷新", systemImage: "arrow.clockwise") { refresh() }
                 .buttonStyle(.bordered)
@@ -325,14 +326,9 @@ struct WalletManagementView: View {
 
     private var availablePlansCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("可选套餐")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppTheme.primaryText)
-                Text("购买将在软件内显示支付二维码")
-                    .font(.system(size: 10))
-                    .foregroundStyle(AppTheme.tertiaryText)
-            }
+            Text("可选套餐")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AppTheme.primaryText)
 
             if store.plans.isEmpty && !store.isLoading {
                 Text("当前暂无可购买套餐")
@@ -412,32 +408,24 @@ struct WalletManagementView: View {
     private var rechargeCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("余额充值")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(AppTheme.primaryText)
-                    Text("下一步直接显示支付二维码")
-                        .font(.system(size: 10))
-                        .foregroundStyle(AppTheme.tertiaryText)
-                }
+                Text("余额充值")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppTheme.primaryText)
 
                 Spacer()
 
-                if !paymentOptions.isEmpty {
-                    VStack(alignment: .trailing, spacing: 5) {
-                        Text("支付方式")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(AppTheme.tertiaryText)
-                        Picker("支付方式", selection: $selectedPaymentID) {
-                            ForEach(paymentOptions) { option in
-                                Text(option.name).tag(option.id)
-                            }
+                if paymentOptions.count == 1, let option = paymentOptions.first {
+                    singlePaymentMethodBadge(option)
+                } else if paymentOptions.count > 1 {
+                    Picker("支付方式", selection: $selectedPaymentID) {
+                        ForEach(paymentOptions) { option in
+                            Text(option.name).tag(option.id)
                         }
-                        .labelsHidden()
-                        .controlSize(.large)
-                        .frame(width: DashboardLayout.walletPaymentPickerWidth)
-                        .disabled(store.isMutating)
                     }
+                    .labelsHidden()
+                    .controlSize(.regular)
+                    .frame(width: DashboardLayout.walletPaymentPickerWidth)
+                    .disabled(store.isMutating)
                 }
             }
             .padding(.bottom, 16)
@@ -470,16 +458,19 @@ struct WalletManagementView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 12) {
                         if let presets = store.topUpInfo?.amountOptions, !presets.isEmpty {
-                            Text("选择充值额度")
+                            Text("充值金额")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(AppTheme.secondaryText)
 
                             LazyVGrid(
                                 columns: Array(
-                                    repeating: GridItem(.flexible(minimum: 0), spacing: 6),
+                                    repeating: GridItem(
+                                        .flexible(minimum: 0),
+                                        spacing: DashboardLayout.walletRechargePresetGridSpacing
+                                    ),
                                     count: DashboardLayout.walletRechargePresetColumnCount
                                 ),
-                                spacing: 6
+                                spacing: DashboardLayout.walletRechargePresetGridSpacing
                             ) {
                                 ForEach(presets, id: \.self) { amount in
                                     quickAmountButton(amount)
@@ -517,18 +508,7 @@ struct WalletManagementView: View {
                                 )
                             }
 
-                            if let discountPresentation = selectedTopUpDiscountPresentation {
-                                Label(
-                                    "\(discountPresentation.label) 优惠已应用",
-                                    systemImage: "tag.fill"
-                                )
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(AppTheme.costAccent)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.bottom, 11)
-                            } else {
-                                Spacer()
-                            }
+                            Spacer()
 
                             rechargeCheckoutButton
                                 .padding(.bottom, 1)
@@ -670,6 +650,14 @@ struct WalletManagementView: View {
         return result
     }
 
+    private var paymentOptionIDs: [String] {
+        paymentOptions.map(\.id)
+    }
+
+    private var creemProductIDs: [String] {
+        (store.topUpInfo?.creemProducts ?? []).map(\.productID)
+    }
+
     private var paymentRequest: PaymentRequest? {
         let id = selectedPaymentID.isEmpty ? paymentOptions.first?.id ?? "" : selectedPaymentID
         if id == "creem", let product = selectedCreemProduct {
@@ -689,14 +677,6 @@ struct WalletManagementView: View {
         store.topUpInfo?.creemProducts.first(where: { $0.productID == selectedCreemProductID })
     }
 
-    private var selectedTopUpDiscountPresentation: TopUpDiscountPresentation? {
-        guard
-            let amount = Int(amountText.trimmingCharacters(in: .whitespacesAndNewlines)),
-            let info = store.topUpInfo
-        else { return nil }
-        return info.topUpDiscountPresentation(for: amount)
-    }
-
     private func hasSubscriptionPaymentOption(for plan: SubscriptionPlan) -> Bool {
         guard let info = store.topUpInfo else { return false }
         let hasEpay = info.enableOnlineTopUp && !info.paymentMethods.isEmpty
@@ -706,10 +686,14 @@ struct WalletManagementView: View {
     }
 
     private func selectDefaultPaymentIfNeeded() {
-        if selectedPaymentID.isEmpty { selectedPaymentID = paymentOptions.first?.id ?? "" }
-        if selectedCreemProductID.isEmpty {
-            selectedCreemProductID = store.topUpInfo?.creemProducts.first?.productID ?? ""
-        }
+        selectedPaymentID = WalletSelectionReconciler.reconcile(
+            current: selectedPaymentID,
+            available: paymentOptionIDs
+        )
+        selectedCreemProductID = WalletSelectionReconciler.reconcile(
+            current: selectedCreemProductID,
+            available: creemProductIDs
+        )
     }
 
     private func quickAmountButton(_ amount: Int) -> some View {
@@ -718,7 +702,7 @@ struct WalletManagementView: View {
         return Button {
             amountText = String(amount)
         } label: {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .center, spacing: 4) {
                 Text("¥\(amount)")
                     .font(.system(
                         size: DashboardLayout.walletRechargePresetAmountFontSize,
@@ -726,6 +710,8 @@ struct WalletManagementView: View {
                         design: .monospaced
                     ))
                     .foregroundStyle(selected ? AppTheme.costAccent : AppTheme.primaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.88)
 
                 if let discountPresentation {
                     Text(discountPresentation.label)
@@ -734,15 +720,17 @@ struct WalletManagementView: View {
                             weight: .semibold
                         ))
                         .foregroundStyle(AppTheme.costAccent)
-                } else {
-                    Text("充值额度")
-                        .font(.system(size: DashboardLayout.walletRechargePresetDetailFontSize))
-                        .foregroundStyle(AppTheme.tertiaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(AppTheme.costAccent.opacity(0.12))
+                        .clipShape(Capsule())
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: DashboardLayout.walletRechargePresetHeight)
+            .padding(.horizontal, DashboardLayout.walletRechargePresetHorizontalPadding)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(height: DashboardLayout.walletRechargePresetHeight, alignment: .center)
             .contentShape(Rectangle())
             .background(selected ? AppTheme.costAccent.opacity(0.10) : AppTheme.subtleSurface)
             .clipShape(RoundedRectangle(cornerRadius: 7))
@@ -752,6 +740,7 @@ struct WalletManagementView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .disabled(store.isMutating)
     }
 
@@ -811,7 +800,7 @@ struct WalletManagementView: View {
                     currency: selectedProduct.currency
                 )
             } else {
-                presentationAmount = Formatters.formatCost(prepared.amount)
+                presentationAmount = Formatters.formatMoney(prepared.amount, currency: "CNY")
             }
             store.markCheckoutPresented(session: session)
             paymentQRCode = PaymentQRCodePresentation(
@@ -835,6 +824,21 @@ struct WalletManagementView: View {
     private var selectedPaymentName: String {
         let id = selectedPaymentID.isEmpty ? paymentOptions.first?.id ?? "" : selectedPaymentID
         return paymentOptions.first(where: { $0.id == id })?.name ?? "在线支付"
+    }
+
+    private func singlePaymentMethodBadge(_ option: WalletPaymentOption) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(AppTheme.costAccent)
+            Text(option.name == "微信" ? "微信支付" : option.name)
+                .foregroundStyle(AppTheme.secondaryText)
+        }
+        .font(.system(size: 10, weight: .medium))
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(AppTheme.subtleSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
     }
 
     private func refresh() {
@@ -865,6 +869,12 @@ struct WalletManagementView: View {
         case "failed", "expired": .red
         default: .gray
         }
+    }
+}
+
+enum WalletSelectionReconciler {
+    static func reconcile(current: String, available: [String]) -> String {
+        available.contains(current) ? current : available.first ?? ""
     }
 }
 

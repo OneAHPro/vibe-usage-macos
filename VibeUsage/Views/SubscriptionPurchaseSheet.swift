@@ -82,9 +82,6 @@ struct SubscriptionPurchaseSheet: View {
             }
 
             HStack {
-                Text("创建订单后将显示软件内支付二维码")
-                    .font(.system(size: 9))
-                    .foregroundStyle(AppTheme.tertiaryText)
                 Spacer()
                 Button("显示支付二维码", systemImage: "qrcode") { beginCheckout() }
                     .buttonStyle(.borderedProminent)

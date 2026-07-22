@@ -23,6 +23,7 @@ enum DashboardLayout {
     static let walletOverviewMinimumColumnWidth: CGFloat = 500
     static let walletOverviewSpacing: CGFloat = 12
     static let walletOverviewCardMinimumHeight: CGFloat = 250
+    static let walletSubscriptionBodyHeight: CGFloat = 188
     static let walletCardHorizontalInset: CGFloat = 16
     static let walletPaymentPickerWidth: CGFloat = 180
     static let walletRechargePresetHeight: CGFloat = 58
@@ -30,7 +31,7 @@ enum DashboardLayout {
     static let walletRechargePresetDetailFontSize: CGFloat = 11
     static let walletRechargePresetColumnCount = 4
     static let walletRechargePresetGridSpacing: CGFloat = 6
-    static let walletRechargePresetHorizontalPadding: CGFloat = 9
+    static let walletRechargePresetHorizontalPadding: CGFloat = 6
     static let walletRechargeAmountFieldWidth: CGFloat = 190
     static let walletRechargeButtonWidth: CGFloat = 148
     static let chartAxisLabelWidth: CGFloat = 46

@@ -228,16 +228,7 @@ struct WalletManagementView: View {
 
             Divider()
 
-            if store.subscriptions.isEmpty && !store.isLoading {
-                subscriptionEmptyState
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(store.subscriptions.enumerated()), id: \.element.id) { index, summary in
-                        subscriptionRow(summary)
-                        if index < store.subscriptions.count - 1 { Divider() }
-                    }
-                }
-            }
+            subscriptionContent
         }
         .frame(
             maxWidth: .infinity,
@@ -253,6 +244,34 @@ struct WalletManagementView: View {
                 ProgressView().controlSize(.small)
             }
         }
+    }
+
+    @ViewBuilder
+    private var subscriptionContent: some View {
+        let layoutMode = WalletSubscriptionLayoutMode.forCount(store.subscriptions.count)
+        Group {
+            switch layoutMode {
+            case .empty:
+                if !store.isLoading {
+                    subscriptionEmptyState
+                }
+            case .singleExpanded:
+                if let summary = store.subscriptions.first {
+                    subscriptionRow(summary, expanded: true)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                }
+            case .scrollingList:
+                ScrollView(.vertical, showsIndicators: true) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(store.subscriptions.enumerated()), id: \.element.id) { index, summary in
+                            subscriptionRow(summary, expanded: false)
+                            if index < store.subscriptions.count - 1 { Divider() }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(height: DashboardLayout.walletSubscriptionBodyHeight)
     }
 
     private var subscriptionEmptyState: some View {
@@ -273,7 +292,7 @@ struct WalletManagementView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private func subscriptionRow(_ summary: SubscriptionSummary) -> some View {
+    private func subscriptionRow(_ summary: SubscriptionSummary, expanded: Bool) -> some View {
         let total = summary.subscription.amountTotal
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -295,33 +314,72 @@ struct WalletManagementView: View {
                     .foregroundStyle(AppTheme.secondaryText)
             }
 
-            HStack(spacing: 16) {
-                if total > 0 {
-                    VStack(alignment: .leading, spacing: 5) {
-                        ProgressView(value: summary.usageFraction)
-                            .tint(AppTheme.costAccent)
+            if total > 0 {
+                ProgressView(value: summary.usageFraction)
+                    .tint(AppTheme.costAccent)
+
+                if expanded {
+                    HStack(spacing: 8) {
+                        subscriptionMetric("已用", quotaCost(summary.subscription.amountUsed))
+                        subscriptionMetric("剩余", quotaCost(summary.remainingAmount), accent: true)
+                        subscriptionMetric("总额度", quotaCost(total))
+                    }
+                } else {
+                    HStack(spacing: 10) {
                         Text("已用 \(quotaCost(summary.subscription.amountUsed)) · 剩余 \(quotaCost(summary.remainingAmount)) · 共 \(quotaCost(total))")
                             .font(.system(size: 9, design: .monospaced))
                             .foregroundStyle(AppTheme.secondaryText)
+                        Spacer()
+                        if summary.subscription.nextResetTime > 0 {
+                            subscriptionResetLabel(summary.subscription.nextResetTime)
+                        }
                     }
-                } else {
+                }
+            } else {
+                HStack(spacing: 10) {
                     Text("不限额度")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(AppTheme.costAccent)
+                    Spacer()
+                    if !expanded, summary.subscription.nextResetTime > 0 {
+                        subscriptionResetLabel(summary.subscription.nextResetTime)
+                    }
                 }
-                Spacer()
-                if summary.subscription.nextResetTime > 0 {
-                    Label(
-                        "\(Formatters.formatUnixDateTime(summary.subscription.nextResetTime)) 重置",
-                        systemImage: "arrow.triangle.2.circlepath"
-                    )
-                    .font(.system(size: 9))
-                    .foregroundStyle(AppTheme.tertiaryText)
-                }
+            }
+
+            if expanded, summary.subscription.nextResetTime > 0 {
+                subscriptionResetLabel(summary.subscription.nextResetTime)
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 13)
+        .padding(.vertical, expanded ? 12 : 10)
+    }
+
+    private func subscriptionMetric(_ label: String, _ value: String, accent: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(AppTheme.tertiaryText)
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(accent ? AppTheme.costAccent : AppTheme.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.subtleSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func subscriptionResetLabel(_ timestamp: Int64) -> some View {
+        Label(
+            "\(Formatters.formatUnixDateTime(timestamp)) 重置",
+            systemImage: "arrow.triangle.2.circlepath"
+        )
+        .font(.system(size: 9))
+        .foregroundStyle(AppTheme.tertiaryText)
     }
 
     private var availablePlansCard: some View {
@@ -702,34 +760,20 @@ struct WalletManagementView: View {
         return Button {
             amountText = String(amount)
         } label: {
-            VStack(alignment: .center, spacing: 4) {
-                Text("¥\(amount)")
-                    .font(.system(
-                        size: DashboardLayout.walletRechargePresetAmountFontSize,
-                        weight: .semibold,
-                        design: .monospaced
-                    ))
-                    .foregroundStyle(selected ? AppTheme.costAccent : AppTheme.primaryText)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.88)
-
+            Group {
                 if let discountPresentation {
-                    Text(discountPresentation.label)
-                        .font(.system(
-                            size: DashboardLayout.walletRechargePresetDetailFontSize,
-                            weight: .semibold
-                        ))
-                        .foregroundStyle(AppTheme.costAccent)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(AppTheme.costAccent.opacity(0.12))
-                        .clipShape(Capsule())
+                    HStack(alignment: .center, spacing: 4) {
+                        presetAmountLabel(amount, selected: selected)
+                        Spacer(minLength: 2)
+                        discountBadge(discountPresentation)
+                    }
+                } else {
+                    presetAmountLabel(amount, selected: selected)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
             .padding(.horizontal, DashboardLayout.walletRechargePresetHorizontalPadding)
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity)
             .frame(height: DashboardLayout.walletRechargePresetHeight, alignment: .center)
             .contentShape(Rectangle())
             .background(selected ? AppTheme.costAccent.opacity(0.10) : AppTheme.subtleSurface)
@@ -742,6 +786,33 @@ struct WalletManagementView: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .disabled(store.isMutating)
+    }
+
+    private func presetAmountLabel(_ amount: Int, selected: Bool) -> some View {
+        Text("¥\(amount)")
+            .font(.system(
+                size: DashboardLayout.walletRechargePresetAmountFontSize,
+                weight: .semibold,
+                design: .monospaced
+            ))
+            .foregroundStyle(selected ? AppTheme.costAccent : AppTheme.primaryText)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+    }
+
+    private func discountBadge(_ discountPresentation: TopUpDiscountPresentation) -> some View {
+        Text(discountPresentation.label)
+            .font(.system(
+                size: DashboardLayout.walletRechargePresetDetailFontSize,
+                weight: .semibold
+            ))
+            .foregroundStyle(AppTheme.costAccent)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(AppTheme.costAccent.opacity(0.12))
+            .clipShape(Capsule())
     }
 
     private var rechargeCheckoutButton: some View {
@@ -875,6 +946,17 @@ struct WalletManagementView: View {
 enum WalletSelectionReconciler {
     static func reconcile(current: String, available: [String]) -> String {
         available.contains(current) ? current : available.first ?? ""
+    }
+}
+
+enum WalletSubscriptionLayoutMode: Equatable {
+    case empty
+    case singleExpanded
+    case scrollingList
+
+    static func forCount(_ count: Int) -> WalletSubscriptionLayoutMode {
+        if count <= 0 { return .empty }
+        return count == 1 ? .singleExpanded : .scrollingList
     }
 }
 

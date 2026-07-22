@@ -26,6 +26,7 @@ struct DashboardLayoutTests {
         #expect(DashboardLayout.walletOverviewColumnCount(for: defaultContentWidth) == 2)
         #expect(DashboardLayout.walletOverviewColumnCount(for: minimumContentWidth) == 1)
         #expect(DashboardLayout.walletOverviewCardMinimumHeight >= 220)
+        #expect(DashboardLayout.walletSubscriptionBodyHeight >= 170)
         #expect(DashboardLayout.walletRechargePresetHeight >= 50)
         #expect(DashboardLayout.walletRechargePresetAmountFontSize >= 15)
         #expect(DashboardLayout.walletRechargePresetDetailFontSize >= 11)
@@ -55,6 +56,10 @@ struct DashboardLayoutTests {
         ]).width + 12
         #expect(widestAmountWidth <= availablePresetTextWidth)
         #expect(representativeDiscountWidth <= availablePresetTextWidth)
+        #expect(
+            (widestAmountWidth + representativeDiscountWidth + 2) * 0.82
+                <= availablePresetTextWidth
+        )
 
         let sideBySideFrames = DashboardLayout.walletOverviewFrames(
             width: defaultContentWidth,
@@ -246,12 +251,19 @@ struct DashboardLayoutTests {
         #expect(view.contains("walletRechargePresetHeight"))
         #expect(view.contains("walletRechargePresetAmountFontSize"))
         #expect(view.contains("walletRechargePresetDetailFontSize"))
-        #expect(view.contains("VStack(alignment: .center, spacing: 4)"))
+        #expect(view.contains("HStack(alignment: .center, spacing: 4)"))
+        #expect(view.contains("Spacer(minLength: 2)"))
         #expect(view.contains(".clipShape(Capsule())"))
         #expect(view.contains("AppTheme.costAccent.opacity(0.12)"))
-        #expect(view.contains(".minimumScaleFactor(0.8)"))
+        #expect(view.contains(".minimumScaleFactor(0.82)"))
         #expect(view.contains(".accessibilityAddTraits(selected ? .isSelected : [])"))
         #expect(!view.contains(".fixedSize()"))
+        #expect(view.contains("walletSubscriptionBodyHeight"))
+        #expect(view.contains("WalletSubscriptionLayoutMode.forCount"))
+        #expect(view.contains("expanded: true"))
+        #expect(view.contains("expanded: false"))
+        #expect(view.contains("ScrollView(.vertical, showsIndicators: true)"))
+        #expect(view.contains("subscriptionMetric("))
         #expect(!view.contains("Color.clear\n                        .frame(height: DashboardLayout.walletRechargePresetDetailFontSize)"))
         #expect(view.contains("walletRechargePresetColumnCount"))
         #expect(view.contains("ForEach(presets, id: \\.self)"))
@@ -320,6 +332,14 @@ struct DashboardLayoutTests {
             ) == "product-a"
         )
         #expect(WalletSelectionReconciler.reconcile(current: "stripe", available: []) == "")
+    }
+
+    @Test
+    func walletSubscriptionLayoutBalancesSingleAndMultiplePlans() {
+        #expect(WalletSubscriptionLayoutMode.forCount(0) == .empty)
+        #expect(WalletSubscriptionLayoutMode.forCount(1) == .singleExpanded)
+        #expect(WalletSubscriptionLayoutMode.forCount(2) == .scrollingList)
+        #expect(WalletSubscriptionLayoutMode.forCount(5) == .scrollingList)
     }
 
     @Test

@@ -64,6 +64,18 @@ final class WalletManagementStore {
         _ = await load(client: client, target: .subscriptions)
     }
 
+    func refreshAfterPayment(client: any AccountManagementClient) async {
+        let operationGeneration = generation
+        let shouldRefreshRecords = hasLoadedFundingRecords
+        let overviewSucceeded = await load(client: client, target: .subscriptions)
+        guard overviewSucceeded, generation == operationGeneration else { return }
+        if shouldRefreshRecords {
+            await loadRecords(client: client, expectedGeneration: operationGeneration)
+        }
+        guard generation == operationGeneration else { return }
+        checkoutMessage = nil
+    }
+
     func refresh(client: any AccountManagementClient, target: WalletRefreshTarget) async {
         let operationGeneration = generation
         let overviewSucceeded = await load(client: client, target: target)

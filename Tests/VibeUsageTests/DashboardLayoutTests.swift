@@ -188,7 +188,21 @@ struct DashboardLayoutTests {
         #expect(view.contains("Formatters.formatMoney(product.price, currency: product.currency)"))
         #expect(view.contains("product.quota"))
         #expect(view.contains("充值记录"))
-        #expect(view.contains("ExternalPaymentLauncher"))
+        #expect(view.contains("PaymentQRCodeSheet"))
+        #expect(purchaseSheet.contains("PaymentQRCodeSheet"))
+        #expect(!view.contains("ExternalPaymentLauncher"))
+        #expect(!purchaseSheet.contains("ExternalPaymentLauncher"))
+        let qrSheet = try String(
+            contentsOf: root.appendingPathComponent("VibeUsage/Views/PaymentQRCodeSheet.swift"),
+            encoding: .utf8
+        )
+        #expect(qrSheet.contains("\\(presentation.paymentMethod) · 软件内扫码支付"))
+        #expect(qrSheet.contains("static let context = CIContext"))
+        #expect(qrSheet.contains("Task.detached(priority: .userInitiated)"))
+        #expect(view.contains("let presentationPaymentMethod = selectedPaymentName"))
+        #expect(view.contains("let presentationAmount = expectedPaymentLabel"))
+        #expect(purchaseSheet.contains("let presentationPaymentMethod = selectedPaymentName"))
+        #expect(purchaseSheet.contains("let presentationAmount = plan.priceLabel"))
         #expect(purchaseSheet.contains("选择支付方式"))
         #expect(purchaseSheet.contains("createSubscriptionCheckout"))
         #expect(!view.contains("Timer"))

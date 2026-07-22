@@ -9,6 +9,7 @@ struct SubscriptionPurchaseSheet: View {
     let quotaPerUnit: Double
 
     @State private var selectedPaymentID = ""
+    @State private var paymentQRCode: PaymentQRCodePresentation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -81,11 +82,11 @@ struct SubscriptionPurchaseSheet: View {
             }
 
             HStack {
-                Text("支付成功后返回软件并刷新订阅状态")
+                Text("创建订单后将显示软件内支付二维码")
                     .font(.system(size: 9))
                     .foregroundStyle(AppTheme.tertiaryText)
                 Spacer()
-                Button("前往支付", systemImage: "arrow.up.right") { beginCheckout() }
+                Button("显示支付二维码", systemImage: "qrcode") { beginCheckout() }
                     .buttonStyle(.borderedProminent)
                     .disabled(store.isMutating || selectedRequest == nil || purchaseLimitReached)
             }
@@ -95,6 +96,13 @@ struct SubscriptionPurchaseSheet: View {
         .background(AppTheme.surface)
         .task {
             if selectedPaymentID.isEmpty { selectedPaymentID = paymentOptions.first?.id ?? "" }
+        }
+        .sheet(item: $paymentQRCode) { presentation in
+            PaymentQRCodeSheet(presentation: presentation) {
+                guard let client else { return }
+                await store.refreshAfterPayment(client: client)
+                dismiss()
+            }
         }
     }
 
@@ -151,15 +159,25 @@ struct SubscriptionPurchaseSheet: View {
 
     private func beginCheckout() {
         guard let client, let request = selectedRequest else { return }
+        let presentationPaymentMethod = selectedPaymentName
+        let presentationAmount = plan.priceLabel
         Task {
             guard let checkout = await store.createSubscriptionCheckout(request, client: client) else { return }
-            do {
-                try ExternalPaymentLauncher().launch(checkout)
-                dismiss()
-            } catch {
-                store.errorMessage = error.localizedDescription
+            guard checkout.qrCodeURL != nil else {
+                store.errorMessage = "支付地址无效，请重新创建订单"
+                return
             }
+            paymentQRCode = PaymentQRCodePresentation(
+                checkout: checkout,
+                title: "购买订阅套餐",
+                paymentMethod: presentationPaymentMethod,
+                amount: presentationAmount
+            )
         }
+    }
+
+    private var selectedPaymentName: String {
+        paymentOptions.first(where: { $0.id == selectedPaymentID })?.name ?? "在线支付"
     }
 }
 

@@ -125,6 +125,35 @@ struct AccountManagementStoreTests {
     }
 
     @Test
+    func paymentCompletionRefreshesOverviewAndOnlyPreviouslyLoadedFundingRecords() async {
+        let client = FakeAccountClient()
+        let store = WalletManagementStore()
+
+        await store.loadIfNeeded(client: client)
+        let request = PaymentRequest.stripe(amount: 20)
+        store.setLocalPaymentEstimate(20, for: request)
+        _ = await store.createCheckout(request, client: client)
+        #expect(store.checkoutMessage != nil)
+        await store.refreshAfterPayment(client: client)
+
+        #expect(client.userCalls == 2)
+        #expect(client.topUpInfoCalls == 2)
+        #expect(client.subscriptionPlanCalls == 2)
+        #expect(client.subscriptionSelfCalls == 2)
+        #expect(client.topUpPageCalls == 0)
+        #expect(store.checkoutMessage == nil)
+
+        await store.loadFundingRecordsIfNeeded(client: client)
+        await store.refreshAfterPayment(client: client)
+
+        #expect(client.userCalls == 3)
+        #expect(client.topUpInfoCalls == 3)
+        #expect(client.subscriptionPlanCalls == 3)
+        #expect(client.subscriptionSelfCalls == 3)
+        #expect(client.topUpPageCalls == 2)
+    }
+
+    @Test
     func resetRejectsAnOlderInFlightWalletOverview() async {
         let client = FakeAccountClient()
         client.userDelay = .milliseconds(80)

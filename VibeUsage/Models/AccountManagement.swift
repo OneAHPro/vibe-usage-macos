@@ -445,6 +445,49 @@ struct BillingPreferencePayload: Decodable, Equatable, Sendable {
 enum PaymentCheckout: Equatable, Sendable {
     case url(URL)
     case form(action: URL, fields: [String: String])
+
+    var qrCodeURL: URL? {
+        switch self {
+        case .url(let url):
+            return Self.validWebURL(url)
+        case .form(let action, let fields):
+            guard Self.validWebURL(action) != nil,
+                  var components = URLComponents(url: action, resolvingAgainstBaseURL: false)
+            else { return nil }
+
+            let encodedFields = fields.keys.sorted().compactMap { key -> String? in
+                guard let encodedKey = Self.formEncoded(key),
+                      let encodedValue = Self.formEncoded(fields[key] ?? "")
+                else { return nil }
+                return "\(encodedKey)=\(encodedValue)"
+            }
+            guard encodedFields.count == fields.count else { return nil }
+
+            let signedQuery = encodedFields.joined(separator: "&")
+            if let existingQuery = components.percentEncodedQuery, !existingQuery.isEmpty {
+                components.percentEncodedQuery = "\(existingQuery)&\(signedQuery)"
+            } else {
+                components.percentEncodedQuery = signedQuery
+            }
+            guard let url = components.url else { return nil }
+            return Self.validWebURL(url)
+        }
+    }
+
+    private static func formEncoded(_ value: String) -> String? {
+        let unreserved = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        )
+        return value.addingPercentEncoding(withAllowedCharacters: unreserved)
+    }
+
+    private static func validWebURL(_ url: URL) -> URL? {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              url.host?.isEmpty == false
+        else { return nil }
+        return url
+    }
 }
 
 enum PaymentRequest: Equatable, Sendable {

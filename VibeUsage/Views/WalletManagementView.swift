@@ -70,6 +70,7 @@ struct WalletManagementView: View {
     @State private var selectedPaymentID = ""
     @State private var selectedCreemProductID = ""
     @State private var selectedPlan: SubscriptionPlan?
+    @State private var paymentQRCode: PaymentQRCodePresentation?
     @State private var amountText = "20"
 
     var body: some View {
@@ -109,6 +110,13 @@ struct WalletManagementView: View {
                 topUpInfo: store.topUpInfo,
                 quotaPerUnit: quotaPerUnit
             )
+        }
+        .sheet(item: $paymentQRCode) { presentation in
+            PaymentQRCodeSheet(presentation: presentation) {
+                guard let client else { return }
+                await store.refreshAfterPayment(client: client)
+                selectDefaultPaymentIfNeeded()
+            }
         }
     }
 
@@ -317,7 +325,7 @@ struct WalletManagementView: View {
                 Text("可选套餐")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(AppTheme.primaryText)
-                Text("购买将在默认浏览器中安全完成")
+                Text("购买将在软件内显示支付二维码")
                     .font(.system(size: 10))
                     .foregroundStyle(AppTheme.tertiaryText)
             }
@@ -403,7 +411,7 @@ struct WalletManagementView: View {
                 Text("余额充值")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(AppTheme.primaryText)
-                Text("在线充值将在默认浏览器中安全完成")
+                Text("创建订单后在软件内扫码支付")
                     .font(.system(size: 10))
                     .foregroundStyle(AppTheme.tertiaryText)
             }
@@ -490,7 +498,7 @@ struct WalletManagementView: View {
                                 .buttonStyle(.bordered)
                                 .disabled(store.isMutating || paymentRequest == nil)
                         }
-                        Button("前往支付", systemImage: "arrow.up.right") { beginCheckout() }
+                        Button("显示支付二维码", systemImage: "qrcode") { beginCheckout() }
                             .buttonStyle(.borderedProminent)
                             .disabled(store.isMutating || paymentRequest == nil || expectedPaymentAmount == nil)
                     }
@@ -676,17 +684,29 @@ struct WalletManagementView: View {
 
     private func beginCheckout() {
         guard let client, let request = paymentRequest else { return }
+        let presentationPaymentMethod = selectedPaymentName
+        let presentationAmount = expectedPaymentLabel
         Task {
             if case .creem = request, let price = selectedCreemProduct?.price {
                 store.setLocalPaymentEstimate(price, for: request)
             }
             guard let checkout = await store.createCheckout(request, client: client) else { return }
-            do {
-                try ExternalPaymentLauncher().launch(checkout)
-            } catch {
-                store.errorMessage = error.localizedDescription
+            guard checkout.qrCodeURL != nil else {
+                store.errorMessage = "支付地址无效，请重新创建订单"
+                return
             }
+            paymentQRCode = PaymentQRCodePresentation(
+                checkout: checkout,
+                title: "余额充值",
+                paymentMethod: presentationPaymentMethod,
+                amount: presentationAmount
+            )
         }
+    }
+
+    private var selectedPaymentName: String {
+        let id = selectedPaymentID.isEmpty ? paymentOptions.first?.id ?? "" : selectedPaymentID
+        return paymentOptions.first(where: { $0.id == id })?.name ?? "在线支付"
     }
 
     private func refresh() {

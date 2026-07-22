@@ -14,6 +14,15 @@ private enum WalletErrorSource {
     case mutation
 }
 
+struct PreparedPaymentCheckout: Equatable, Sendable {
+    let checkout: PaymentCheckout
+    let amount: Double
+}
+
+struct WalletCheckoutSession: Equatable, Sendable {
+    fileprivate let generation: Int
+}
+
 @Observable
 @MainActor
 final class WalletManagementStore {
@@ -45,15 +54,15 @@ final class WalletManagementStore {
         set { mutationErrorMessage = newValue }
     }
     var checkoutMessage: String?
-    private(set) var estimatedPaymentAmount: Double?
-    private(set) var estimatedPaymentRequest: PaymentRequest?
     var page = 1
     let pageSize = 20
 
     var pageCount: Int { max(Int(ceil(Double(total) / Double(pageSize))), 1) }
     var isLoading: Bool { isLoadingOverview || isLoadingRecords }
+    var checkoutSession: WalletCheckoutSession { WalletCheckoutSession(generation: generation) }
 
     private var generation = 0
+    private var checkoutTask: Task<PreparedPaymentCheckout?, Never>?
 
     func loadIfNeeded(client: any AccountManagementClient) async {
         guard !hasLoaded else { return }
@@ -97,28 +106,83 @@ final class WalletManagementStore {
         await loadRecords(client: client)
     }
 
-    func createCheckout(
+    func prepareCheckout(
         _ request: PaymentRequest,
+        knownAmount: Double? = nil,
+        session: WalletCheckoutSession,
         client: any AccountManagementClient
-    ) async -> PaymentCheckout? {
-        guard !isMutating else { return nil }
-        guard estimatedPaymentRequest == request, estimatedPaymentAmount != nil else {
-            errorMessage = "请先确认预计支付金额"
+    ) async -> PreparedPaymentCheckout? {
+        guard !isMutating,
+              session.generation == generation,
+              !Task.isCancelled
+        else {
             return nil
         }
         let operationGeneration = generation
+        checkoutMessage = nil
         isMutating = true
-        defer {
-            if generation == operationGeneration { isMutating = false }
+        let task = Task { @MainActor [weak self] () -> PreparedPaymentCheckout? in
+            guard let self else { return nil }
+            return await self.performCheckout(
+                request,
+                knownAmount: knownAmount,
+                operationGeneration: operationGeneration,
+                client: client
+            )
         }
+        checkoutTask = task
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+
+        guard generation == operationGeneration else { return nil }
+        checkoutTask = nil
+        isMutating = false
+        return result
+    }
+
+    func cancelCheckout(session: WalletCheckoutSession) {
+        guard session.generation == generation else { return }
+        checkoutTask?.cancel()
+    }
+
+    func markCheckoutPresented(session: WalletCheckoutSession) {
+        guard session.generation == generation else { return }
+        checkoutMessage = "支付完成后请刷新余额与账单"
+    }
+
+    private func performCheckout(
+        _ request: PaymentRequest,
+        knownAmount: Double?,
+        operationGeneration: Int,
+        client: any AccountManagementClient
+    ) async -> PreparedPaymentCheckout? {
+        guard generation == operationGeneration, !Task.isCancelled else { return nil }
         do {
+            let amount: Double
+            if let knownAmount {
+                amount = knownAmount
+            } else {
+                amount = try await client.fetchPaymentAmount(request)
+            }
+            guard generation == operationGeneration, !Task.isCancelled else { return nil }
+            guard amount.isFinite, amount >= 0 else {
+                errorMessage = "支付金额无效，请刷新后重试"
+                return nil
+            }
             let checkout = try await client.createPaymentCheckout(request)
-            guard generation == operationGeneration else { return nil }
+            guard generation == operationGeneration, !Task.isCancelled else { return nil }
+            guard checkout.qrCodeURL != nil else {
+                errorMessage = "支付地址无效，请重新创建订单"
+                checkoutMessage = nil
+                return nil
+            }
             errorMessage = nil
-            checkoutMessage = "支付完成后请刷新余额与账单"
-            return checkout
+            return PreparedPaymentCheckout(checkout: checkout, amount: amount)
         } catch {
-            guard generation == operationGeneration else { return nil }
+            guard generation == operationGeneration, !Task.isCancelled else { return nil }
             record(error)
             return nil
         }
@@ -174,45 +238,9 @@ final class WalletManagementStore {
         }
     }
 
-    func estimatePayment(
-        _ request: PaymentRequest,
-        client: any AccountManagementClient
-    ) async {
-        guard !isMutating else { return }
-        let operationGeneration = generation
-        isMutating = true
-        defer {
-            if generation == operationGeneration { isMutating = false }
-        }
-        do {
-            let amount = try await client.fetchPaymentAmount(request)
-            guard generation == operationGeneration else { return }
-            estimatedPaymentAmount = amount
-            estimatedPaymentRequest = request
-            errorMessage = nil
-        } catch {
-            guard generation == operationGeneration else { return }
-            clearPaymentEstimate()
-            record(error)
-        }
-    }
-
-    func setLocalPaymentEstimate(_ amount: Double, for request: PaymentRequest) {
-        guard amount.isFinite, amount >= 0 else {
-            clearPaymentEstimate()
-            return
-        }
-        estimatedPaymentAmount = amount
-        estimatedPaymentRequest = request
-        errorMessage = nil
-    }
-
-    func clearPaymentEstimate() {
-        estimatedPaymentAmount = nil
-        estimatedPaymentRequest = nil
-    }
-
     func reset() {
+        checkoutTask?.cancel()
+        checkoutTask = nil
         generation &+= 1
         user = nil
         topUpInfo = nil
@@ -234,7 +262,6 @@ final class WalletManagementStore {
         recordsErrorMessage = nil
         mutationErrorMessage = nil
         checkoutMessage = nil
-        clearPaymentEstimate()
     }
 
     private func load(
@@ -279,7 +306,6 @@ final class WalletManagementStore {
                 break
             }
 
-            clearPaymentEstimate()
             user = loadedUser
             clearError(errorSource)
             return true

@@ -79,10 +79,7 @@ struct AccountManagementStoreTests {
         #expect(store.plans.first?.title == "Pro")
         #expect(store.billingPreference == .subscriptionFirst)
 
-        await store.estimatePayment(.stripe(amount: 20), client: client)
-        #expect(store.estimatedPaymentAmount == 10)
         await store.refresh(client: client, target: .recharge)
-        #expect(store.estimatedPaymentAmount == nil)
         #expect(client.userCalls == 2)
         #expect(client.topUpInfoCalls == 2)
         #expect(client.subscriptionPlanCalls == 1)
@@ -109,6 +106,203 @@ struct AccountManagementStoreTests {
     }
 
     @Test
+    func walletCheckoutCalculatesAmountAndCreatesOrderInOneAction() async {
+        let client = FakeAccountClient()
+        let store = WalletManagementStore()
+        let request = PaymentRequest.stripe(amount: 20)
+        let session = store.checkoutSession
+
+        let prepared = await store.prepareCheckout(
+            request,
+            session: session,
+            client: client
+        )
+
+        #expect(prepared?.amount == 10)
+        #expect(prepared?.checkout == .url(URL(string: "https://pay.example.com")!))
+        #expect(client.paymentAmountCalls == 1)
+        #expect(client.paymentCheckoutCalls == 1)
+        #expect(client.paymentAmountRequests == [request])
+        #expect(client.paymentCheckoutRequests == [request])
+        #expect(client.paymentEvents == ["amount", "checkout"])
+        #expect(store.checkoutMessage == nil)
+        store.markCheckoutPresented(session: session)
+        #expect(store.checkoutMessage == "支付完成后请刷新余额与账单")
+    }
+
+    @Test
+    func walletCheckoutStopsBeforeCreatingOrderWhenAmountCalculationFails() async {
+        let client = FakeAccountClient()
+        client.paymentAmountError = FakeAccountClient.Failure.requested
+        let store = WalletManagementStore()
+
+        let prepared = await store.prepareCheckout(
+            .stripe(amount: 20),
+            session: store.checkoutSession,
+            client: client
+        )
+
+        #expect(prepared == nil)
+        #expect(client.paymentAmountCalls == 1)
+        #expect(client.paymentCheckoutCalls == 0)
+        #expect(store.errorMessage != nil)
+    }
+
+    @Test
+    func walletCheckoutRejectsSessionCapturedBeforeReset() async {
+        let client = FakeAccountClient()
+        let store = WalletManagementStore()
+        let expiredSession = store.checkoutSession
+
+        store.reset()
+        let prepared = await store.prepareCheckout(
+            .stripe(amount: 20),
+            session: expiredSession,
+            client: client
+        )
+
+        #expect(prepared == nil)
+        #expect(client.paymentAmountCalls == 0)
+        #expect(client.paymentCheckoutCalls == 0)
+    }
+
+    @Test
+    func walletResetCancelsAmountRequestBeforeCheckoutStarts() async {
+        let client = FakeAccountClient()
+        client.paymentAmountDelay = .milliseconds(80)
+        let store = WalletManagementStore()
+        let session = store.checkoutSession
+
+        let task = Task {
+            await store.prepareCheckout(.stripe(amount: 20), session: session, client: client)
+        }
+        while client.paymentAmountCalls == 0 { await Task.yield() }
+        store.reset()
+        let prepared = await task.value
+
+        #expect(prepared == nil)
+        #expect(client.paymentAmountCalls == 1)
+        #expect(client.paymentCheckoutCalls == 0)
+        #expect(store.errorMessage == nil)
+    }
+
+    @Test
+    func cancellingWalletCheckoutDoesNotCreateOrderOrShowError() async {
+        let client = FakeAccountClient()
+        client.paymentAmountDelay = .milliseconds(80)
+        let store = WalletManagementStore()
+        let session = store.checkoutSession
+
+        let task = Task {
+            await store.prepareCheckout(.stripe(amount: 20), session: session, client: client)
+        }
+        while client.paymentAmountCalls == 0 { await Task.yield() }
+        store.cancelCheckout(session: session)
+        let prepared = await task.value
+
+        #expect(prepared == nil)
+        #expect(client.paymentCheckoutCalls == 0)
+        #expect(store.errorMessage == nil)
+    }
+
+    @Test
+    func repeatedWalletCheckoutWhileFirstIsRunningDoesNotDuplicateRequests() async {
+        let client = FakeAccountClient()
+        client.paymentAmountDelay = .milliseconds(80)
+        let store = WalletManagementStore()
+        let session = store.checkoutSession
+
+        let firstTask = Task {
+            await store.prepareCheckout(.stripe(amount: 20), session: session, client: client)
+        }
+        while client.paymentAmountCalls == 0 { await Task.yield() }
+        let second = await store.prepareCheckout(
+            .stripe(amount: 20),
+            session: session,
+            client: client
+        )
+        let first = await firstTask.value
+
+        #expect(first != nil)
+        #expect(second == nil)
+        #expect(client.paymentAmountCalls == 1)
+        #expect(client.paymentCheckoutCalls == 1)
+    }
+
+    @Test
+    func checkoutCreationFailureKeepsTheCalculatedAmountFromReportingSuccess() async {
+        let client = FakeAccountClient()
+        client.paymentCheckoutError = FakeAccountClient.Failure.requested
+        let store = WalletManagementStore()
+
+        let prepared = await store.prepareCheckout(
+            .stripe(amount: 20),
+            session: store.checkoutSession,
+            client: client
+        )
+
+        #expect(prepared == nil)
+        #expect(client.paymentAmountCalls == 1)
+        #expect(client.paymentCheckoutCalls == 1)
+        #expect(store.errorMessage != nil)
+        #expect(store.checkoutMessage == nil)
+    }
+
+    @Test
+    func invalidCheckoutTargetDoesNotReportPaymentAsReady() async {
+        let client = FakeAccountClient()
+        client.paymentCheckoutResult = .url(URL(fileURLWithPath: "/tmp/pay"))
+        let store = WalletManagementStore()
+
+        let prepared = await store.prepareCheckout(
+            .stripe(amount: 20),
+            session: store.checkoutSession,
+            client: client
+        )
+
+        #expect(prepared == nil)
+        #expect(store.errorMessage == "支付地址无效，请重新创建订单")
+        #expect(store.checkoutMessage == nil)
+    }
+
+    @Test
+    func invalidKnownProductPriceShowsAnErrorWithoutCreatingOrder() async {
+        let client = FakeAccountClient()
+        let store = WalletManagementStore()
+
+        let prepared = await store.prepareCheckout(
+            .creem(productID: "product_123"),
+            knownAmount: -1,
+            session: store.checkoutSession,
+            client: client
+        )
+
+        #expect(prepared == nil)
+        #expect(client.paymentAmountCalls == 0)
+        #expect(client.paymentCheckoutCalls == 0)
+        #expect(store.errorMessage == "支付金额无效，请刷新后重试")
+    }
+
+    @Test
+    func walletCheckoutUsesKnownProductPriceWithoutAmountRequest() async {
+        let client = FakeAccountClient()
+        let store = WalletManagementStore()
+
+        let prepared = await store.prepareCheckout(
+            .creem(productID: "product_123"),
+            knownAmount: 29.9,
+            session: store.checkoutSession,
+            client: client
+        )
+
+        #expect(prepared?.amount == 29.9)
+        #expect(client.paymentAmountCalls == 0)
+        #expect(client.paymentCheckoutCalls == 1)
+        #expect(client.paymentCheckoutRequests == [.creem(productID: "product_123")])
+        #expect(client.paymentEvents == ["checkout"])
+    }
+
+    @Test
     func fundingRecordsCanLoadWhileSubscriptionOverviewIsStillLoading() async {
         let client = FakeAccountClient()
         client.userDelay = .milliseconds(80)
@@ -131,8 +325,13 @@ struct AccountManagementStoreTests {
 
         await store.loadIfNeeded(client: client)
         let request = PaymentRequest.stripe(amount: 20)
-        store.setLocalPaymentEstimate(20, for: request)
-        _ = await store.createCheckout(request, client: client)
+        let session = store.checkoutSession
+        _ = await store.prepareCheckout(
+            request,
+            session: session,
+            client: client
+        )
+        store.markCheckoutPresented(session: session)
         #expect(store.checkoutMessage != nil)
         await store.refreshAfterPayment(client: client)
 
@@ -261,6 +460,11 @@ private final class FakeAccountClient: AccountManagementClient {
     var subscriptionPlanCalls = 0
     var subscriptionSelfCalls = 0
     var preferenceCalls = 0
+    var paymentAmountCalls = 0
+    var paymentCheckoutCalls = 0
+    var paymentAmountRequests: [PaymentRequest] = []
+    var paymentCheckoutRequests: [PaymentRequest] = []
+    var paymentEvents: [String] = []
     var subscriptionCheckoutCalls = 0
     var revealCalls = 0
     var lastKeyword: String?
@@ -270,6 +474,10 @@ private final class FakeAccountClient: AccountManagementClient {
     var userError: Error?
     var topUpPageDelay: Duration?
     var subscriptionPlanError: Error?
+    var paymentAmountError: Error?
+    var paymentCheckoutError: Error?
+    var paymentAmountDelay: Duration?
+    var paymentCheckoutResult = PaymentCheckout.url(URL(string: "https://pay.example.com")!)
 
     func fetchCurrentUser() async throws -> AuthenticatedUser {
         userCalls += 1
@@ -325,10 +533,21 @@ private final class FakeAccountClient: AccountManagementClient {
         return TopUpPage(page: page, pageSize: pageSize, total: 0, items: [])
     }
 
-    func fetchPaymentAmount(_ request: PaymentRequest) async throws -> Double { 10 }
+    func fetchPaymentAmount(_ request: PaymentRequest) async throws -> Double {
+        paymentAmountCalls += 1
+        paymentAmountRequests.append(request)
+        paymentEvents.append("amount")
+        if let paymentAmountDelay { try? await Task.sleep(for: paymentAmountDelay) }
+        if let paymentAmountError { throw paymentAmountError }
+        return 10
+    }
 
     func createPaymentCheckout(_ request: PaymentRequest) async throws -> PaymentCheckout {
-        .url(URL(string: "https://pay.example.com")!)
+        paymentCheckoutCalls += 1
+        paymentCheckoutRequests.append(request)
+        paymentEvents.append("checkout")
+        if let paymentCheckoutError { throw paymentCheckoutError }
+        return paymentCheckoutResult
     }
 
     func fetchSubscriptionPlans() async throws -> [SubscriptionPlanItem] {

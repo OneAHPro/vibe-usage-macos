@@ -24,11 +24,25 @@ struct DashboardLayoutTests {
 
         #expect(DashboardLayout.walletOverviewColumnCount(for: defaultContentWidth) == 2)
         #expect(DashboardLayout.walletOverviewColumnCount(for: minimumContentWidth) == 1)
-        #expect(DashboardLayout.walletRechargeControlsFit(for: defaultContentWidth))
-        #expect(DashboardLayout.walletRechargeControlsFit(
-            for: DashboardLayout.walletOverviewMinimumColumnWidth * 2
-                + DashboardLayout.walletOverviewSpacing
-        ))
+        #expect(DashboardLayout.walletOverviewCardMinimumHeight >= 220)
+
+        let sideBySideFrames = DashboardLayout.walletOverviewFrames(
+            width: defaultContentWidth,
+            measuredHeights: [180, 250]
+        )
+        #expect(sideBySideFrames.count == 2)
+        #expect(sideBySideFrames[0].minY == sideBySideFrames[1].minY)
+        #expect(sideBySideFrames[0].height == 250)
+        #expect(sideBySideFrames[1].height == 250)
+
+        let stackedFrames = DashboardLayout.walletOverviewFrames(
+            width: minimumContentWidth,
+            measuredHeights: [180, 250]
+        )
+        #expect(stackedFrames.count == 2)
+        #expect(stackedFrames[0].height == 180)
+        #expect(stackedFrames[1].height == 250)
+        #expect(stackedFrames[1].minY == 180 + DashboardLayout.walletOverviewSpacing)
     }
 
     @Test
@@ -181,8 +195,17 @@ struct DashboardLayoutTests {
         #expect(!view.contains("private enum WalletSection"))
         #expect(!view.contains(".pickerStyle(.segmented)"))
         #expect(view.contains("在线充值"))
-        #expect(view.contains("预计支付金额"))
-        #expect(view.contains("计算实付"))
+        #expect(view.contains("立即充值"))
+        #expect(view.contains("正在创建支付订单"))
+        #expect(view.contains("下一步直接显示支付二维码"))
+        #expect(!view.contains("预计支付金额"))
+        #expect(!view.contains("请先计算"))
+        #expect(!view.contains("计算实付"))
+        #expect(!view.contains("calculatePaymentAmount"))
+        #expect(view.contains("prepareCheckout"))
+        #expect(view.contains("markCheckoutPresented"))
+        #expect(view.contains("walletOverviewCardMinimumHeight"))
+        #expect(view.components(separatedBy: "maxHeight: .infinity").count - 1 >= 2)
         #expect(view.contains("选择产品"))
         #expect(view.contains("selectedCreemProductID"))
         #expect(view.contains("Formatters.formatMoney(product.price, currency: product.currency)"))
@@ -200,7 +223,8 @@ struct DashboardLayoutTests {
         #expect(qrSheet.contains("static let context = CIContext"))
         #expect(qrSheet.contains("Task.detached(priority: .userInitiated)"))
         #expect(view.contains("let presentationPaymentMethod = selectedPaymentName"))
-        #expect(view.contains("let presentationAmount = expectedPaymentLabel"))
+        #expect(view.contains("knownAmount: selectedProduct?.price"))
+        #expect(view.contains("prepared.amount"))
         #expect(purchaseSheet.contains("let presentationPaymentMethod = selectedPaymentName"))
         #expect(purchaseSheet.contains("let presentationAmount = plan.priceLabel"))
         #expect(purchaseSheet.contains("选择支付方式"))

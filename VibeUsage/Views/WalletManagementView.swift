@@ -9,19 +9,20 @@ private struct WalletOverviewLayout: Layout {
         cache: inout ()
     ) -> CGSize {
         let width = max(proposal.width ?? DashboardLayout.walletOverviewMinimumColumnWidth, 0)
-        let columnCount = min(DashboardLayout.walletOverviewColumnCount(for: width), max(subviews.count, 1))
-        let columnWidth = max((width - spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount), 0)
-        var height: CGFloat = 0
-
-        for rowStart in stride(from: 0, to: subviews.count, by: columnCount) {
-            let rowEnd = min(rowStart + columnCount, subviews.count)
-            let rowHeight = subviews[rowStart..<rowEnd].reduce(CGFloat.zero) { current, subview in
-                max(current, subview.sizeThatFits(.init(width: columnWidth, height: nil)).height)
-            }
-            height += rowHeight
-            if rowEnd < subviews.count { height += spacing }
+        let columnWidth = DashboardLayout.walletOverviewColumnWidth(
+            for: width,
+            itemCount: subviews.count,
+            spacing: spacing
+        )
+        let heights = subviews.map {
+            $0.sizeThatFits(.init(width: columnWidth, height: nil)).height
         }
-
+        let frames = DashboardLayout.walletOverviewFrames(
+            width: width,
+            measuredHeights: heights,
+            spacing: spacing
+        )
+        let height = frames.map(\.maxY).max() ?? 0
         return CGSize(width: width, height: height)
     }
 
@@ -31,32 +32,27 @@ private struct WalletOverviewLayout: Layout {
         subviews: Subviews,
         cache: inout ()
     ) {
-        let columnCount = min(
-            DashboardLayout.walletOverviewColumnCount(for: bounds.width),
-            max(subviews.count, 1)
+        let columnWidth = DashboardLayout.walletOverviewColumnWidth(
+            for: bounds.width,
+            itemCount: subviews.count,
+            spacing: spacing
         )
-        let columnWidth = max(
-            (bounds.width - spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount),
-            0
+        let heights = subviews.map {
+            $0.sizeThatFits(.init(width: columnWidth, height: nil)).height
+        }
+        let frames = DashboardLayout.walletOverviewFrames(
+            width: bounds.width,
+            measuredHeights: heights,
+            spacing: spacing
         )
-        var y = bounds.minY
 
-        for rowStart in stride(from: 0, to: subviews.count, by: columnCount) {
-            let rowEnd = min(rowStart + columnCount, subviews.count)
-            let row = subviews[rowStart..<rowEnd]
-            let rowHeight = row.reduce(CGFloat.zero) { current, subview in
-                max(current, subview.sizeThatFits(.init(width: columnWidth, height: nil)).height)
-            }
-
-            for (offset, subview) in row.enumerated() {
-                let x = bounds.minX + CGFloat(offset) * (columnWidth + spacing)
-                subview.place(
-                    at: CGPoint(x: x, y: y),
-                    anchor: .topLeading,
-                    proposal: .init(width: columnWidth, height: rowHeight)
-                )
-            }
-            y += rowHeight + spacing
+        for (index, subview) in subviews.enumerated() {
+            let frame = frames[index].offsetBy(dx: bounds.minX, dy: bounds.minY)
+            subview.place(
+                at: frame.origin,
+                anchor: .topLeading,
+                proposal: .init(width: frame.width, height: frame.height)
+            )
         }
     }
 }
@@ -72,6 +68,8 @@ struct WalletManagementView: View {
     @State private var selectedPlan: SubscriptionPlan?
     @State private var paymentQRCode: PaymentQRCodePresentation?
     @State private var amountText = "20"
+    @State private var checkoutTask: Task<Void, Never>?
+    @State private var activeCheckoutSession: WalletCheckoutSession?
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -99,9 +97,10 @@ struct WalletManagementView: View {
         .onChange(of: store.requiresAuthentication) { _, required in
             if required { appState.handleAccountAuthenticationFailure() }
         }
-        .onChange(of: amountText) { _, _ in store.clearPaymentEstimate() }
-        .onChange(of: selectedPaymentID) { _, _ in store.clearPaymentEstimate() }
-        .onChange(of: selectedCreemProductID) { _, _ in store.clearPaymentEstimate() }
+        .onChange(of: appState.isConfigured) { _, isConfigured in
+            if !isConfigured { cancelCheckout() }
+        }
+        .onDisappear { cancelCheckout() }
         .sheet(item: $selectedPlan) { plan in
             SubscriptionPurchaseSheet(
                 store: store,
@@ -239,6 +238,12 @@ struct WalletManagementView: View {
                 }
             }
         }
+        .frame(
+            maxWidth: .infinity,
+            minHeight: DashboardLayout.walletOverviewCardMinimumHeight,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
         .background(AppTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
@@ -265,7 +270,7 @@ struct WalletManagementView: View {
             Spacer()
         }
         .padding(.horizontal, 16)
-        .frame(minHeight: 76)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 
     private func subscriptionRow(_ summary: SubscriptionSummary) -> some View {
@@ -406,15 +411,37 @@ struct WalletManagementView: View {
     }
 
     private var rechargeCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("余额充值")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppTheme.primaryText)
-                Text("创建订单后在软件内扫码支付")
-                    .font(.system(size: 10))
-                    .foregroundStyle(AppTheme.tertiaryText)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("余额充值")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppTheme.primaryText)
+                    Text("下一步直接显示支付二维码")
+                        .font(.system(size: 10))
+                        .foregroundStyle(AppTheme.tertiaryText)
+                }
+
+                Spacer()
+
+                if !paymentOptions.isEmpty {
+                    VStack(alignment: .trailing, spacing: 5) {
+                        Text("支付方式")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(AppTheme.tertiaryText)
+                        Picker("支付方式", selection: $selectedPaymentID) {
+                            ForEach(paymentOptions) { option in
+                                Text(option.name).tag(option.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .controlSize(.large)
+                        .frame(width: DashboardLayout.walletPaymentPickerWidth)
+                        .disabled(store.isMutating)
+                    }
+                }
             }
+            .padding(.bottom, 16)
 
             if paymentOptions.isEmpty {
                 HStack(spacing: 8) {
@@ -423,89 +450,95 @@ struct WalletManagementView: View {
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(AppTheme.tertiaryText)
-                .frame(maxWidth: .infinity, minHeight: 74)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .bottom, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("支付方式")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(AppTheme.secondaryText)
-                            Picker("支付方式", selection: $selectedPaymentID) {
-                                ForEach(paymentOptions) { option in
-                                    Text(option.name).tag(option.id)
+                if selectedPaymentID == "creem" {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("选择产品")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(AppTheme.secondaryText)
+                        Picker("选择产品", selection: $selectedCreemProductID) {
+                            ForEach(store.topUpInfo?.creemProducts ?? []) { product in
+                                Text("\(product.name) · \(Formatters.formatExactNumber(Int(product.quota))) 额度 · \(Formatters.formatMoney(product.price, currency: product.currency))")
+                                    .tag(product.productID)
+                            }
+                        }
+                        .labelsHidden()
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity)
+                        .disabled(store.isMutating)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("充值金额")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(AppTheme.secondaryText)
+
+                        HStack(spacing: 9) {
+                            Text("¥")
+                                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                .foregroundStyle(AppTheme.costAccent)
+                            TextField("输入金额", text: $amountText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(AppTheme.primaryText)
+                                .onSubmit { beginCheckout() }
+                                .disabled(store.isMutating)
+                        }
+                        .padding(.horizontal, 13)
+                        .frame(height: 52)
+                        .background(AppTheme.subtleSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7)
+                                .stroke(AppTheme.separator, lineWidth: 1)
+                        )
+
+                        if let presets = store.topUpInfo?.amountOptions, !presets.isEmpty {
+                            HStack(spacing: 6) {
+                                ForEach(presets.prefix(5), id: \.self) { amount in
+                                    quickAmountButton(amount)
                                 }
                             }
-                            .labelsHidden()
-                            .frame(width: DashboardLayout.walletPaymentPickerWidth)
                         }
-
-                        if selectedPaymentID == "creem" {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("选择产品")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(AppTheme.secondaryText)
-                                Picker("选择产品", selection: $selectedCreemProductID) {
-                                    ForEach(store.topUpInfo?.creemProducts ?? []) { product in
-                                        Text("\(product.name) · \(Formatters.formatExactNumber(Int(product.quota))) 额度 · \(Formatters.formatMoney(product.price, currency: product.currency))")
-                                            .tag(product.productID)
-                                    }
-                                }
-                                .labelsHidden()
-                                .frame(width: DashboardLayout.walletCreemProductPickerWidth)
-                            }
-                        } else {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("充值金额")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(AppTheme.secondaryText)
-                                TextField("金额", text: $amountText)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 130)
-                                    .onSubmit { calculatePaymentAmount() }
-                            }
-                        }
-                        Spacer()
-                    }
-
-                    if selectedPaymentID != "creem",
-                       let presets = store.topUpInfo?.amountOptions,
-                       !presets.isEmpty {
-                        HStack(spacing: 6) {
-                            Text("快捷金额")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(AppTheme.secondaryText)
-                            ForEach(presets.prefix(5), id: \.self) { amount in
-                                Button(String(amount)) { amountText = String(amount) }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                            }
-                        }
-                    }
-
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("预计支付金额")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(AppTheme.secondaryText)
-                            Text(expectedPaymentLabel)
-                                .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(expectedPaymentAmount == nil ? AppTheme.tertiaryText : AppTheme.costAccent)
-                        }
-                        Spacer()
-                        if selectedPaymentID != "creem" {
-                            Button("计算实付", systemImage: "equal.circle") { calculatePaymentAmount() }
-                                .buttonStyle(.bordered)
-                                .disabled(store.isMutating || paymentRequest == nil)
-                        }
-                        Button("显示支付二维码", systemImage: "qrcode") { beginCheckout() }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(store.isMutating || paymentRequest == nil || expectedPaymentAmount == nil)
                     }
                 }
+
+                Spacer(minLength: 14)
+
+                Button(action: beginCheckout) {
+                    HStack(spacing: 8) {
+                        if store.isMutating {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("正在创建支付订单…")
+                        } else {
+                            Image(systemName: "qrcode")
+                            Text("立即充值")
+                        }
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(store.isMutating || paymentRequest == nil)
+
+                Label("支付二维码将在软件内显示，不会打开浏览器", systemImage: "lock.shield")
+                    .font(.system(size: 9))
+                    .foregroundStyle(AppTheme.tertiaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 7)
             }
         }
         .padding(DashboardLayout.walletCardHorizontalInset)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: DashboardLayout.walletOverviewCardMinimumHeight,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
         .background(AppTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(AppTheme.separator, lineWidth: 1))
@@ -643,21 +676,6 @@ struct WalletManagementView: View {
         store.topUpInfo?.creemProducts.first(where: { $0.productID == selectedCreemProductID })
     }
 
-    private var expectedPaymentAmount: Double? {
-        guard let request = paymentRequest else { return nil }
-        if case .creem = request { return selectedCreemProduct?.price }
-        guard store.estimatedPaymentRequest == request else { return nil }
-        return store.estimatedPaymentAmount
-    }
-
-    private var expectedPaymentLabel: String {
-        guard let amount = expectedPaymentAmount else { return "请先计算" }
-        if let product = selectedCreemProduct, selectedPaymentID == "creem" {
-            return Formatters.formatMoney(product.price, currency: product.currency)
-        }
-        return Formatters.formatCost(amount)
-    }
-
     private func hasSubscriptionPaymentOption(for plan: SubscriptionPlan) -> Bool {
         guard let info = store.topUpInfo else { return false }
         let hasEpay = info.enableOnlineTopUp && !info.paymentMethods.isEmpty
@@ -673,35 +691,78 @@ struct WalletManagementView: View {
         }
     }
 
-    private func calculatePaymentAmount() {
-        guard let client, let request = paymentRequest else { return }
-        if case .creem = request, let price = selectedCreemProduct?.price {
-            store.setLocalPaymentEstimate(price, for: request)
-            return
+    private func quickAmountButton(_ amount: Int) -> some View {
+        let selected = amountText == String(amount)
+        return Button {
+            amountText = String(amount)
+        } label: {
+            Text(String(amount))
+                .font(.system(size: 10, weight: selected ? .semibold : .medium, design: .monospaced))
+                .foregroundStyle(selected ? AppTheme.costAccent : AppTheme.secondaryText)
+                .frame(maxWidth: .infinity)
+                .frame(height: 26)
+                .background(selected ? AppTheme.costAccent.opacity(0.10) : AppTheme.subtleSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(selected ? AppTheme.costAccent.opacity(0.35) : AppTheme.separator, lineWidth: 1)
+                )
         }
-        Task { await store.estimatePayment(request, client: client) }
+        .buttonStyle(.plain)
+        .disabled(store.isMutating)
     }
 
     private func beginCheckout() {
         guard let client, let request = paymentRequest else { return }
         let presentationPaymentMethod = selectedPaymentName
-        let presentationAmount = expectedPaymentLabel
-        Task {
-            if case .creem = request, let price = selectedCreemProduct?.price {
-                store.setLocalPaymentEstimate(price, for: request)
+        let selectedProduct = selectedPaymentID == "creem" ? selectedCreemProduct : nil
+        let session = store.checkoutSession
+        checkoutTask?.cancel()
+        if let activeCheckoutSession {
+            store.cancelCheckout(session: activeCheckoutSession)
+        }
+        activeCheckoutSession = session
+        checkoutTask = Task {
+            defer {
+                if activeCheckoutSession == session {
+                    checkoutTask = nil
+                    activeCheckoutSession = nil
+                }
             }
-            guard let checkout = await store.createCheckout(request, client: client) else { return }
-            guard checkout.qrCodeURL != nil else {
-                store.errorMessage = "支付地址无效，请重新创建订单"
-                return
+            guard !Task.isCancelled else { return }
+            guard let prepared = await store.prepareCheckout(
+                request,
+                knownAmount: selectedProduct?.price,
+                session: session,
+                client: client
+            ) else { return }
+            guard !Task.isCancelled else { return }
+            let presentationAmount: String
+            if let selectedProduct {
+                presentationAmount = Formatters.formatMoney(
+                    prepared.amount,
+                    currency: selectedProduct.currency
+                )
+            } else {
+                presentationAmount = Formatters.formatCost(prepared.amount)
             }
+            store.markCheckoutPresented(session: session)
             paymentQRCode = PaymentQRCodePresentation(
-                checkout: checkout,
+                checkout: prepared.checkout,
                 title: "余额充值",
                 paymentMethod: presentationPaymentMethod,
                 amount: presentationAmount
             )
         }
+    }
+
+    private func cancelCheckout() {
+        checkoutTask?.cancel()
+        if let activeCheckoutSession {
+            store.cancelCheckout(session: activeCheckoutSession)
+        }
+        checkoutTask = nil
+        activeCheckoutSession = nil
     }
 
     private var selectedPaymentName: String {

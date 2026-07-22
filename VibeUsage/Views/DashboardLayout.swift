@@ -22,9 +22,9 @@ enum DashboardLayout {
     static let walletHorizontalInset: CGFloat = 20
     static let walletOverviewMinimumColumnWidth: CGFloat = 500
     static let walletOverviewSpacing: CGFloat = 12
+    static let walletOverviewCardMinimumHeight: CGFloat = 250
     static let walletCardHorizontalInset: CGFloat = 16
     static let walletPaymentPickerWidth: CGFloat = 180
-    static let walletCreemProductPickerWidth: CGFloat = 260
     static let chartAxisLabelWidth: CGFloat = 46
     static let heatmapWeekdayLabelWidth: CGFloat = 30
     static let heatmapColumnSpacing: CGFloat = 4
@@ -50,14 +50,51 @@ enum DashboardLayout {
         width >= walletOverviewMinimumColumnWidth * 2 + walletOverviewSpacing ? 2 : 1
     }
 
-    static func walletRechargeControlsFit(for width: CGFloat) -> Bool {
-        let columns = walletOverviewColumnCount(for: width)
-        let cardWidth = (width - walletOverviewSpacing * CGFloat(columns - 1)) / CGFloat(columns)
-        let contentWidth = cardWidth - walletCardHorizontalInset * 2
-        let controlsWidth = walletPaymentPickerWidth
-            + walletOverviewSpacing
-            + walletCreemProductPickerWidth
-        return controlsWidth <= contentWidth
+    static func walletOverviewColumnWidth(
+        for width: CGFloat,
+        itemCount: Int,
+        spacing: CGFloat = walletOverviewSpacing
+    ) -> CGFloat {
+        guard itemCount > 0 else { return 0 }
+        let columnCount = min(walletOverviewColumnCount(for: width), itemCount)
+        return max(
+            (width - spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount),
+            0
+        )
+    }
+
+    static func walletOverviewFrames(
+        width: CGFloat,
+        measuredHeights: [CGFloat],
+        spacing: CGFloat = walletOverviewSpacing
+    ) -> [CGRect] {
+        guard !measuredHeights.isEmpty else { return [] }
+        let columnCount = min(walletOverviewColumnCount(for: width), measuredHeights.count)
+        let columnWidth = walletOverviewColumnWidth(
+            for: width,
+            itemCount: measuredHeights.count,
+            spacing: spacing
+        )
+        var frames = Array(repeating: CGRect.zero, count: measuredHeights.count)
+        var y: CGFloat = 0
+
+        for rowStart in stride(from: 0, to: measuredHeights.count, by: columnCount) {
+            let rowEnd = min(rowStart + columnCount, measuredHeights.count)
+            let rowHeight = measuredHeights[rowStart..<rowEnd].max() ?? 0
+            for index in rowStart..<rowEnd {
+                let column = index - rowStart
+                frames[index] = CGRect(
+                    x: CGFloat(column) * (columnWidth + spacing),
+                    y: y,
+                    width: columnWidth,
+                    height: rowHeight
+                )
+            }
+            y += rowHeight
+            if rowEnd < measuredHeights.count { y += spacing }
+        }
+
+        return frames
     }
 
     static func heatmapCellSize(for width: CGFloat) -> CGFloat {
